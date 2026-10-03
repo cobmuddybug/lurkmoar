@@ -62,7 +62,12 @@ pytest. Parser (fixtures with real-shaped comments, hostile tags), client (GET-o
 
 ## Install
 
-`install.sh`: `uv`-managed venv, a `~/.local/bin/lurkmoar` wrapper, a `.desktop` file and an icon in `~/.local/share/`, and an Omarchy binding `SUPER + SHIFT + M` (checked unused against `~/.config/hypr/bindings.lua`; a backup is made before editing, as for the other projects). The installer is idempotent.
+`install.sh`: `uv`-managed venv, a `~/.local/bin/lurkmoar` wrapper, and an icon in `~/.local/share/`. The old AppImage version is replaced:
+- The existing `SUPER + ALT + L` "LurkMoar" line in `~/.config/hypr/bindings.lua` is repointed at the new wrapper. A backup is made first, as for the other projects.
+- The old `LurkMoar.desktop` is overwritten by the new one.
+- `~/.local/opt/LurkMoar/` (the old AppImage) is left on disk and never deleted by the installer.
+
+The installer is idempotent.
 
 ## Attribution
 
