@@ -191,6 +191,20 @@ class ThreadDelegate(QStyledItemDelegate):
         return QSize(self.view_width, self.geo(item)["height"])
 
     # ---- painting
+    def caption(self, post):
+        a = post.attachment
+        if a is None:
+            return ""
+        live = [x for x in post.attachments if not x.deleted]
+        if a.deleted:
+            cap = "File deleted"
+        else:
+            cap = (f"{a.filename}{a.extension} · {a.width}×{a.height} · {a.size / 1024:.0f} KB"
+                   + (" · spoiler" if a.spoiler and a.id not in self.revealed_files else ""))
+        if len(live) > 1:
+            cap += f" · +{len(live) - 1} more files"
+        return cap
+
     def paint(self, p, opt, idx):
         item, th, r = idx.data(Qt.UserRole), self.t, opt.rect
         p.save()
@@ -241,12 +255,7 @@ class ThreadDelegate(QStyledItemDelegate):
         if a:
             p.setFont(self.mono)
             p.setPen(QColor(th.foreground_muted))
-            if a.deleted:
-                cap = "File deleted"
-            else:
-                cap = (f"{a.filename}{a.extension} · {a.width}×{a.height} · {a.size / 1024:.0f} KB"
-                       + (" · spoiler" if a.spoiler and a.id not in self.revealed_files else ""))
-            p.drawText(r.x() + PAD, y + self.mfm.ascent(), cap)
+            p.drawText(r.x() + PAD, y + self.mfm.ascent(), self.caption(post))
         y0 = r.y() + g["top"]
         if g["box"]:
             self._paint_thumb(p, QRect(r.x() + PAD, y0, g["box"], g["box"]), post)
@@ -472,8 +481,8 @@ class ThreadView(QWidget):
     def replies(self): return max(0, self.model.post_count() - 1)
 
     def images(self):
-        return sum(1 for r in range(self.model.rowCount())
-                   if (p := self.model.post_at(r)) and p.attachment and not p.attachment.deleted)
+        return sum(1 for r in range(self.model.rowCount()) if (p := self.model.post_at(r))
+                   for a in p.attachments if not a.deleted)
 
     def _header(self):
         self.num_lbl.setText(f"No.{self.number}")
@@ -566,14 +575,14 @@ class ThreadView(QWidget):
         out = []
         for r in range(self.model.rowCount()):
             p = self.model.post_at(r)
-            if p and p.attachment and not p.attachment.deleted:
-                out.append((p.number, p.attachment))
+            if p:
+                out += [(p.number, a) for a in p.attachments if not a.deleted]
         return out
 
     def select_attachment(self, att_id):
         for r in range(self.model.rowCount()):
             p = self.model.post_at(r)
-            if p and p.attachment and p.attachment.id == att_id:
+            if p and any(x.id == att_id for x in p.attachments):
                 idx = self.model.index(r)
                 self.list.setCurrentIndex(idx)
                 self.list.scrollTo(idx, QAbstractItemView.EnsureVisible)

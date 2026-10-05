@@ -306,7 +306,7 @@ class MainWindow(QMainWindow):
                 pass
 
     def open_media(self, site, board, att):
-        self.viewer.show_attachment(board, att, [a for _, a in self.thread.gallery()])
+        self.viewer.show_attachment(site, board, att, [a for _, a in self.thread.gallery()])
 
     def _open_link(self, url):
         if url:

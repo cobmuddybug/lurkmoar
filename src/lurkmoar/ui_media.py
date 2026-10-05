@@ -109,7 +109,7 @@ class MediaViewer(QFrame):
 
     def __init__(self, parent, theme, cfg, repo):
         super().__init__(parent)
-        self.cfg, self.repo, self.att, self.board = cfg, repo, None, ""
+        self.cfg, self.repo, self.att, self.site, self.board = cfg, repo, None, "4chan", ""
         self.items, self.index, self._start = [], 0, 0
         self.setObjectName("viewer")
         self.setStyleSheet(f"#viewer {{ background: {theme.background}; }}")
@@ -169,12 +169,12 @@ class MediaViewer(QFrame):
         self.hide()
 
     # ---- showing things
-    def show_attachment(self, board, att, gallery=None):
+    def show_attachment(self, site, board, att, gallery=None):
         items = list(gallery or [])
         idx = next((i for i, a in enumerate(items) if a.id == att.id), -1)
         if idx < 0:
             items, idx = [att], 0
-        self.board, self.items, self.index, self._start = board, items, idx, idx
+        self.site, self.board, self.items, self.index, self._start = site, board, items, idx, idx
         self.setGeometry(self.parentWidget().rect())
         self.show()
         self.raise_()
@@ -197,7 +197,7 @@ class MediaViewer(QFrame):
                           "+ / − zoom   0 fit   1 actual size   S save   ← → previous / next")
         self.stack.setCurrentWidget(self.canvas)
         self.canvas.set_note("Loading video…" if video else "Loading image…")
-        self.repo.request_media("4chan", self.board, att)
+        self.repo.request_media(self.site, self.board, att)
 
     def step(self, delta):
         if len(self.items) < 2:
@@ -261,7 +261,7 @@ class MediaViewer(QFrame):
         att = self.att
         if att is None:
             return
-        src = self.repo.cached_media_path("4chan", self.board, att)
+        src = self.repo.cached_media_path(self.site, self.board, att)
         if src is None:
             self.message.emit("Still downloading. Try again in a moment.")
             return
@@ -269,6 +269,8 @@ class MediaViewer(QFrame):
         stem = Path(att.filename.replace("\\", "/")).name.strip(". ") or str(att.id)
         try:
             folder = Path(self.cfg.save_dir).expanduser()
+            if self.site != "4chan":
+                folder = folder / self.site
             folder.mkdir(parents=True, exist_ok=True)
             dest, n = folder / f"{stem}{att.extension}", 0
             while dest.exists():
