@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QAbstractButton, QApplication, QHBoxLayout, QLine
                                QMessageBox, QStackedWidget, QVBoxLayout, QWidget)
 
 from .ui_catalog import CatalogView
-from .ui_media import open_url
+from .ui_media import MediaViewer, is_video, open_url, play_video
 from .ui_thread import ThreadView
 from .ui_misc import (Banner, BoardPicker, HelpDialog, Header, Sidebar, StatusLine, Welcome, ago)
 
@@ -72,6 +72,9 @@ class MainWindow(QMainWindow):
         self.repo.thread_ready.connect(self._on_thread)
         self._thread_timer = QTimer(self)
         self._thread_timer.timeout.connect(self._auto_refresh)
+        self.viewer = MediaViewer(root, theme, cfg, repo)
+        self.viewer.message.connect(self.status.message)
+        self.thread.media_requested.connect(self.open_media)
         self.header.toggle_rail.connect(self._toggle_rail)
         self.header.choose_board.connect(self.open_picker)
         self.header.refresh.connect(self.refresh)
@@ -236,6 +239,16 @@ class MainWindow(QMainWindow):
             self.status.message(msg + " · just now")
         elif res.error is None:
             self.status.message(f"/{code}/ is up to date")
+
+    def open_media(self, board, att):
+        if is_video(att.extension):
+            try:
+                play_video(self.cfg.video_command, att.original_url)
+                self.status.message(f"Playing in {self.cfg.video_command.split()[0]}…")
+            except OSError:
+                self.status.message(f"Couldn't start {self.cfg.video_command.split()[0]}. Is it installed?")
+            return
+        self.viewer.show_attachment(board, att)
 
     def _open_link(self, url):
         if url:
