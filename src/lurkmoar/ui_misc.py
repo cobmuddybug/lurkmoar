@@ -4,6 +4,8 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QPushButton, QToolButton, QVBoxLayout, QWidget)
 
+from .sites import key as site_key
+
 KEYS = [
     ("B", "Choose board"),
     ("←", "Move to the board list (↑↓ choose, Enter open, → or Esc back)"),
@@ -387,11 +389,11 @@ def bookmark_status(b, has_cache) -> str:
 
 
 class BookmarksView(QWidget):
-    open_thread = Signal(str, int)
+    open_thread = Signal(str, str, int)
 
-    def __init__(self, db):
+    def __init__(self, db, sites):
         super().__init__()
-        self.db = db
+        self.db, self.sites = db, sites
         v = QVBoxLayout(self)
         v.setContentsMargins(10, 10, 10, 10)
         row = QHBoxLayout()
@@ -417,6 +419,12 @@ class BookmarksView(QWidget):
         v.addWidget(self.list, 1)
         self.reload()
 
+    def _label(self, site, board, subject):
+        if site == "4chan":
+            return f"/{board}/  {subject}"
+        name = self.sites[site].name if site in self.sites else site
+        return f"{name} · /{board}/  {subject}"
+
     def _add(self, text, data=None, header=False):
         it = QListWidgetItem(text)
         if header:
@@ -431,15 +439,15 @@ class BookmarksView(QWidget):
         bms = self.db.bookmarks()
         self.empty.setVisible(not bms)
         for b in bms:
-            has = self.db.cache_get(f"thread:{b.board}:{b.thread_id}") is not None
-            self._add(f"/{b.board}/  {b.subject}\n      {bookmark_status(b, has)}",
-                      ("bm", b.board, b.thread_id))
-        marked = {(b.board, b.thread_id) for b in bms}
-        recent = [r for r in self.db.recent() if (r[0], r[1]) not in marked]
+            has = self.db.cache_get(site_key(b.site, "thread", b.board, b.thread_id)) is not None
+            self._add(f"{self._label(b.site, b.board, b.subject)}\n      {bookmark_status(b, has)}",
+                      ("bm", b.site, b.board, b.thread_id))
+        marked = {(b.site, b.board, b.thread_id) for b in bms}
+        recent = [r for r in self.db.recent() if (r[0], r[1], r[2]) not in marked]
         if recent:
             self._add("RECENTLY VISITED", header=True)
-            for board, tid, subject in recent:
-                self._add(f"/{board}/  {subject}", ("recent", board, tid))
+            for site, board, tid, subject in recent:
+                self._add(self._label(site, board, subject), ("recent", site, board, tid))
         for i in range(self.list.count()):
             if self.list.item(i).data(Qt.UserRole) == cur and cur is not None:
                 self.list.setCurrentRow(i)
@@ -459,7 +467,7 @@ class BookmarksView(QWidget):
     def _open(self, it):
         d = it.data(Qt.UserRole)
         if d:
-            self.open_thread.emit(d[1], d[2])
+            self.open_thread.emit(d[1], d[2], d[3])
 
     def focus_list(self):
         self.list.setFocus()
@@ -468,11 +476,11 @@ class BookmarksView(QWidget):
         d = self._selected()
         if name == "open":
             if d:
-                self.open_thread.emit(d[1], d[2])
+                self.open_thread.emit(d[1], d[2], d[3])
             return bool(d)
         if name == "delete":
             if d and d[0] == "bm":
-                self.db.bookmark_remove(d[1], d[2])
+                self.db.bookmark_remove(d[1], d[2], d[3])
                 self.reload()
             return bool(d)
         if name in ("down", "up"):
@@ -487,5 +495,5 @@ class BookmarksView(QWidget):
         d = self._selected()
         if not d:
             return None
-        return dict(board=d[1], number=d[2], subject="", replies=0,
-                    url=f"https://boards.4chan.org/{d[1]}/thread/{d[2]}")
+        url = self.sites[d[1]].page_url(d[2], d[3]) if d[1] in self.sites else ""
+        return dict(site=d[1], board=d[2], number=d[3], subject="", replies=0, url=url)

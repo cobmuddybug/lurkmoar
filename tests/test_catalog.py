@@ -34,7 +34,7 @@ def test_model_new_count_and_counts():
 
 def test_open_board_lists_threads_and_filters(qapp):
     win, *_ = make_window(qapp)
-    win.open_board("g")
+    win.open_board("4chan", "g")
     assert win.mode == "catalog"
     assert pump(qapp, lambda: win.catalog.model.rowCount() == 3)
     assert win.catalog.count.text() == "3 threads"
@@ -50,16 +50,16 @@ def test_open_board_lists_threads_and_filters(qapp):
 def test_enter_opens_selected_thread(qapp):
     win, *_ = make_window(qapp)
     got = []
-    win.catalog.open_thread.connect(lambda b, n: got.append((b, n)))
-    win.open_board("g")
+    win.catalog.open_thread.connect(lambda s, b, n: got.append((s, b, n)))
+    win.open_board("4chan", "g")
     pump(qapp, lambda: win.catalog.model.rowCount() == 3)
     assert win.catalog.key_action("open") is True
-    assert got == [("g", 100)]
+    assert got == [("4chan", "g", 100)]
 
 
 def test_selection_and_scroll_survive_refresh(qapp):
     win, api, repo, _ = make_window(qapp)
-    win.open_board("g")
+    win.open_board("4chan", "g")
     pump(qapp, lambda: win.catalog.model.rowCount() == 3)
     win.catalog.select(101)
     repo.core.now = lambda: time.time() + 100
@@ -70,12 +70,12 @@ def test_selection_and_scroll_survive_refresh(qapp):
 
 def test_offline_shows_cached_with_banner(qapp):
     win, api, repo, db = make_window(qapp)
-    win.open_board("g")
+    win.open_board("4chan", "g")
     pump(qapp, lambda: win.catalog.model.rowCount() == 3 and not win.refreshing)
     win2, api2, repo2, _ = make_window(qapp, db=db)
     api2.fail = True
     repo2.core.now = lambda: time.time() + 100
-    win2.open_board("g")
+    win2.open_board("4chan", "g")
     assert pump(qapp, lambda: not win2.banner.isHidden())
     assert "Showing cached /g/ catalog" in win2.banner.label.text()
     assert win2.catalog.model.rowCount() == 3
@@ -86,6 +86,6 @@ def test_offline_shows_cached_with_banner(qapp):
 def test_no_cache_and_offline_says_so(qapp):
     win, api, *_ = make_window(qapp)
     api.fail = True
-    win.open_board("v")
+    win.open_board("4chan", "v")
     assert pump(qapp, lambda: not win.banner.isHidden())
     assert "Nothing is cached" in win.banner.label.text()

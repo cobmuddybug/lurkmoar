@@ -7,7 +7,7 @@ from test_rail import focus, setup_rail
 
 def in_thread(qapp):
     win, *rest = setup_rail(qapp)
-    win.open_thread("g", 100)
+    win.open_thread("4chan", "g", 100)
     assert pump(qapp, lambda: win.thread.loaded)
     return win
 
@@ -31,7 +31,7 @@ def test_backspace_undoes_quote_jumps_first(qapp):
 
 def test_backspace_closes_the_viewer(qapp):
     win = in_thread(qapp)
-    win.open_media("g", win.thread.gallery()[0][1])
+    win.open_media("4chan", "g", win.thread.gallery()[0][1])
     assert win.viewer.isVisible()
     press(win, Qt.Key_Backspace)
     assert not win.viewer.isVisible() and win.mode == "thread"

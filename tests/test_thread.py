@@ -58,9 +58,9 @@ def test_spans_html_external_link_and_hostile_text():
 
 def open_thread_in(qapp, n_extra=0):
     win, api, repo, db = make_window(qapp)
-    win.open_board("g")
+    win.open_board("4chan", "g")
     pump(qapp, lambda: win.catalog.model.rowCount() == 3)
-    win.open_thread("g", 100)
+    win.open_thread("4chan", "g", 100)
     assert pump(qapp, lambda: win.thread.loaded)
     return win, api, repo, db
 
@@ -158,7 +158,7 @@ def test_deleted_thread_with_cache_keeps_cached_copy_and_explains(qapp):
     win.leave_thread()
     api.gone.add(100)
     repo.core.now = lambda: time.time() + 100
-    win.open_thread("g", 100)
+    win.open_thread("4chan", "g", 100)
     assert win.thread.loaded and win.thread.model.post_count() == 4   # cached copy shown at once
     assert pump(qapp, lambda: not win.banner.isHidden())
     assert "no longer available" in win.banner.label.text()
@@ -170,9 +170,9 @@ def test_deleted_thread_with_cache_keeps_cached_copy_and_explains(qapp):
 def test_deleted_thread_without_cache(qapp):
     win, api, *_ = make_window(qapp)
     api.gone.add(100)
-    win.open_board("g")
+    win.open_board("4chan", "g")
     pump(qapp, lambda: win.catalog.model.rowCount() == 3)
-    win.open_thread("g", 100)
+    win.open_thread("4chan", "g", 100)
     assert pump(qapp, lambda: not win.banner.isHidden())
     assert "No cached copy" in win.banner.label.text()
 
@@ -184,7 +184,7 @@ def test_large_thread_lays_out_fast(qapp):
                   "com": "lorem ipsum dolor sit amet " * 12 + (f'<a href="#p{1000 + i - 1}" class="quotelink">&gt;&gt;x</a>' if i else "")})
                   for i in range(1500)])
     t = time.time()
-    tv.begin("g", 100, "big", False)
+    tv.begin("4chan", "g", 100, "big", False)
     tv.load(big)
     tv.list.doItemsLayout()
     assert time.time() - t < 3.0

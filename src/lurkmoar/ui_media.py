@@ -197,7 +197,7 @@ class MediaViewer(QFrame):
                           "+ / − zoom   0 fit   1 actual size   S save   ← → previous / next")
         self.stack.setCurrentWidget(self.canvas)
         self.canvas.set_note("Loading video…" if video else "Loading image…")
-        self.repo.request_media(self.board, att)
+        self.repo.request_media("4chan", self.board, att)
 
     def step(self, delta):
         if len(self.items) < 2:
@@ -261,7 +261,7 @@ class MediaViewer(QFrame):
         att = self.att
         if att is None:
             return
-        src = self.repo.cached_media_path(self.board, att)
+        src = self.repo.cached_media_path("4chan", self.board, att)
         if src is None:
             self.message.emit("Still downloading. Try again in a moment.")
             return

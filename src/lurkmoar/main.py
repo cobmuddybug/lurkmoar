@@ -7,6 +7,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QHBoxLayout, QLineEdit, QMainWindow,
                                QMessageBox, QStackedWidget, QVBoxLayout, QWidget)
 
+from .sites import valid_board
 from .ui_catalog import CatalogView
 from .ui_media import MediaViewer, open_url
 from .ui_thread import ThreadView
@@ -19,7 +20,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.cfg, self.db, self.repo, self.theme, self.paths = cfg, db, repo, theme, paths
         self.mode = self.prev_mode = "welcome"
-        self.board = None
+        self.site, self.board = "4chan", None
         self.boards = {}
         self.pages = {}
         self.viewer = None
@@ -51,7 +52,7 @@ class MainWindow(QMainWindow):
         self.welcome.choose.connect(self.open_picker)
         self.catalog = CatalogView(theme, cfg, repo, db)
         self.add_page("catalog", self.catalog)
-        self.catalog.open_thread.connect(lambda b, n: self.open_thread(b, n))
+        self.catalog.open_thread.connect(lambda s, b, n: self.open_thread(s, b, n))
         self.catalog.refresh_requested.connect(self.refresh)
         self.catalog.favourite_board.connect(self.toggle_board_favourite)
         self.repo.catalog_ready.connect(self._on_catalog)
@@ -77,14 +78,14 @@ class MainWindow(QMainWindow):
         self.viewer.message.connect(self.status.message)
         self.viewer.closed.connect(lambda att_id: att_id and self.thread.select_attachment(att_id))
         self.thread.media_requested.connect(self.open_media)
-        self.bookmarks = BookmarksView(db)
+        self.bookmarks = BookmarksView(db, repo.sites)
         self.add_page("bookmarks", self.bookmarks)
-        self.bookmarks.open_thread.connect(lambda b, n: self.open_thread(b, n))
+        self.bookmarks.open_thread.connect(lambda s, b, n: self.open_thread(s, b, n))
         self.header.toggle_rail.connect(self._toggle_rail)
         self.header.choose_board.connect(self.open_picker)
         self.header.refresh.connect(self.refresh)
         self.header.help.connect(self.show_help)
-        self.sidebar.board_chosen.connect(self._rail_chose)
+        self.sidebar.board_chosen.connect(lambda c: self._rail_chose("4chan", c))      # shim until the rail is site-aware (Task 8)
         self.sidebar.all_boards.connect(self.open_picker)
         self.sidebar.bookmarks.connect(lambda: self.show_bookmarks())
 
@@ -93,7 +94,7 @@ class MainWindow(QMainWindow):
         if cached.data:
             self._set_boards(cached.data)
         self.repo.request_boards()
-        self.sidebar.set_boards(self.db.fav_boards(), None)
+        self._refresh_rail()
 
         QApplication.instance().installEventFilter(self)
         self._ticker = QTimer(self)
@@ -123,11 +124,29 @@ class MainWindow(QMainWindow):
     def _update_where(self):
         t = {"welcome": "Choose a board  (B)", "bookmarks": "Bookmarks"}.get(self.mode)
         if t is None and self.board:
-            b = self.boards.get(self.board)
-            t = f"/{self.board}/ {b.title}" if b else f"/{self.board}/"
+            title = self._title(self.site, self.board)
+            t = f"{self._prefix()}/{self.board}/ {title}".strip()
             if self.mode == "thread":
-                t = f"/{self.board}/ › No.{getattr(self.pages['thread'], 'number', '')}"
+                t = f"{self._prefix()}/{self.board}/ › No.{getattr(self.pages['thread'], 'number', '')}"
         self.header.where.setText(t or "Choose a board  (B)")
+
+    def _board_obj(self, site, board):
+        if site == "4chan":
+            return self.boards.get(board)
+        return next((b for b in self.repo.sites[site].boards if b.code == board), None)
+
+    def _title(self, site, board):
+        b = self._board_obj(site, board)
+        return b.title if b else ""
+
+    def _prefix(self):
+        return "" if self.site == "4chan" else self.repo.sites[self.site].name + " "
+
+    def _fav_codes(self):
+        return [b for s, b in self.db.fav_boards() if s == "4chan"]      # shim until the rail is site-aware (Task 8)
+
+    def _refresh_rail(self):
+        self.sidebar.set_boards(self._fav_codes(), self.board if self.site == "4chan" else None)
 
     def refresh(self):
         fn = getattr(self, f"_refresh_{self.mode}", None)
@@ -157,7 +176,7 @@ class MainWindow(QMainWindow):
     def _set_boards(self, boards):
         self.boards = {b.code: b for b in boards}
         if self._picker is not None and self._picker.isVisible():
-            self._picker.set_boards(boards, self.db.fav_boards())
+            self._picker.set_boards(boards, self._fav_codes())
         self._update_where()
 
     def open_picker(self):
@@ -165,27 +184,27 @@ class MainWindow(QMainWindow):
             return
         if not self.boards:
             self.repo.request_boards()
-        p = BoardPicker(self, list(self.boards.values()), self.db.fav_boards())
-        p.chosen.connect(lambda c: self.open_board(c))
-        p.favourite_toggled.connect(self._toggle_fav)
+        p = BoardPicker(self, list(self.boards.values()), self._fav_codes())       # shim until Task 8
+        p.chosen.connect(lambda c: self.open_board("4chan", c))
+        p.favourite_toggled.connect(lambda c: self._toggle_fav("4chan", c))
         self._picker = p
         p.open()
 
-    def _rail_chose(self, code):
-        self.open_board(code)
+    def _rail_chose(self, site, board):
+        self.open_board(site, board)
         self.page().focus_list()
 
-    def _toggle_fav(self, code):
-        on = self.db.fav_toggle(code)
-        self.sidebar.set_boards(self.db.fav_boards(), self.board)
-        self.catalog.set_favourite(self.board in self.db.fav_boards())
+    def _toggle_fav(self, site, code):
+        on = self.db.fav_toggle(site, code)
+        self._refresh_rail()
+        self.catalog.set_favourite((self.site, self.board) in self.db.fav_boards())
         if self._picker is not None:
-            self._picker.set_favs(self.db.fav_boards())
+            self._picker.set_favs(self._fav_codes())
         self.status.message(f"/{code}/ {'added to' if on else 'removed from'} favourites")
 
     def toggle_board_favourite(self):
         if self.board:
-            self._toggle_fav(self.board)
+            self._toggle_fav(self.site, self.board)
         else:
             self.status.message("Choose a board first")
 
@@ -199,18 +218,22 @@ class MainWindow(QMainWindow):
             if lst is not None and pg.isVisible():
                 lst.viewport().update()
 
-    def open_board(self, code):
+    def open_board(self, site, code):
         code = code.lower()
+        if site not in self.repo.sites or not valid_board(self.repo.sites[site], code):
+            self.status.message(f"“{code}” isn't a valid board code")
+            return
         if self.mode == "thread":
             self._save_thread_state()
-        self.board = code
+        self.site, self.board = site, code
         self.db.kv_set("last_board", code)
+        self.db.kv_set("last_site", site)
         self.db.kv_set("last_view", "catalog")
         self.banner.hide()
-        self.catalog.set_board(code, self.boards.get(code))
-        self.catalog.set_favourite(code in self.db.fav_boards())
-        self.sidebar.set_boards(self.db.fav_boards(), code)
-        cached, nav = self.repo.cached_catalog(code), self.db.nav_get(code)
+        self.catalog.set_board(site, code, self._board_obj(site, code))
+        self.catalog.set_favourite((site, code) in self.db.fav_boards())
+        self._refresh_rail()
+        cached, nav = self.repo.cached_catalog(site, code), self.db.nav_get(site, code)
         if cached.data is not None:
             self.catalog.show_threads(cached.data)
             self.catalog.restore(nav.catalog_anchor, nav.thread_no)
@@ -225,17 +248,17 @@ class MainWindow(QMainWindow):
         if not self.board:
             return
         self.refreshing = True
-        if self.repo.request_catalog(self.board):
+        if self.repo.request_catalog(self.site, self.board):
             if announce:
                 self.status.message(f"Refreshing /{self.board}/…")
         else:
             self.status.message("Already refreshing…")
 
-    def _on_catalog(self, code, res):
+    def _on_catalog(self, site, code, res):
         self.refreshing = False
         for pg in self.pages.values():
             getattr(pg, "on_bookmarks_changed", lambda: None)()
-        if code != self.board:
+        if (site, code) != (self.site, self.board):
             return
         new = self.catalog.show_threads(res.data) if res.data is not None else None
         if self.mode != "catalog":
@@ -256,29 +279,33 @@ class MainWindow(QMainWindow):
         self.show_mode("bookmarks")
 
     def _refresh_bookmarks(self):
-        boards = sorted({b.board for b in self.db.bookmarks()})
+        boards = sorted({(b.site, b.board) for b in self.db.bookmarks()})
         if not boards:
             self.status.message("No bookmarks yet. Press F on a thread.")
             return
         self.status.message("Checking bookmarks…")
-        for b in boards:
-            self.repo.request_catalog(b)
+        for site, board in boards:
+            self.repo.request_catalog(site, board)
 
     def _restore(self):
         last = self.db.kv_get("last_board")
+        site = self.db.kv_get("last_site", "4chan")
+        if site not in self.repo.sites:
+            site = "4chan"
         if not last or not self.cfg.start_on_last_board:
             return
         view = self.db.kv_get("last_view", "")      # read first: open_board resets it to "catalog"
-        self.open_board(last)
+        self.open_board(site, last)
         if self.cfg.restore_thread and view.startswith("thread:"):
+            parts = view.split(":")
             try:
-                _, b, n = view.split(":")
-                if b == last:
-                    self.open_thread(b, int(n))
-            except ValueError:
+                s_, b, n = ("4chan", parts[1], parts[2]) if len(parts) == 3 else (parts[1], parts[2], parts[3])
+                if (s_, b) == (site, last):
+                    self.open_thread(s_, b, int(n))
+            except (ValueError, IndexError):
                 pass
 
-    def open_media(self, board, att):
+    def open_media(self, site, board, att):
         self.viewer.show_attachment(board, att, [a for _, a in self.thread.gallery()])
 
     def _open_link(self, url):
@@ -289,34 +316,38 @@ class MainWindow(QMainWindow):
     def _cross_thread(self, board, thread, post):
         box = QMessageBox(self)
         box.setWindowTitle("Open another thread?")
+        site = self.repo.sites[self.thread_ref[0] if self.thread_ref else self.site]
         box.setText(f"This quote points to /{board}/ No.{thread}.")
         a = box.addButton("Open here", QMessageBox.AcceptRole)
-        w = box.addButton("Open on 4chan.org", QMessageBox.ActionRole)
+        w = box.addButton(f"Open on {site.name}", QMessageBox.ActionRole)
         box.addButton("Cancel", QMessageBox.RejectRole)
         box.exec()
         if box.clickedButton() is a:
-            self.open_thread(board, thread)
+            if valid_board(site, board):
+                self.open_thread(site.id, board, thread)
         elif box.clickedButton() is w:
-            self._open_link(f"https://boards.4chan.org/{board}/thread/{thread}#p{post}")
+            self._open_link(site.page_url(board, thread, post))
 
-    def open_thread(self, board, no, announce=True):
-        if board != self.board:
-            self.open_board(board)
+    def open_thread(self, site, board, no, announce=True):
+        if (site, board) != (self.site, self.board):
+            self.open_board(site, board)
+            if (self.site, self.board) != (site, board):
+                return                                   # the board was refused
         elif self.mode == "thread":
             self._save_thread_state()
-        nav = self.db.nav_get(board)
-        bm = next((b for b in self.db.bookmarks() if b.board == board and b.thread_id == no), None)
+        nav = self.db.nav_get(site, board)
+        bm = next((b for b in self.db.bookmarks() if (b.site, b.board, b.thread_id) == (site, board, no)), None)
         anchor = nav.thread_anchor if nav.thread_no == no else (bm.last_opened_post if bm else 0)
         sel = self.catalog.model.row_of(no)
         summary = self.catalog.model.thread_at(sel) if sel >= 0 else None
         subject = (summary.subject or summary.comment[:60]) if summary else (bm.subject if bm else "")
-        self.db.nav_set(board, catalog_anchor=self.catalog.anchor(), thread_no=no)
-        self.db.recent_add(board, no, subject or f"No.{no}")
-        self.db.kv_set("last_view", f"thread:{board}:{no}")
-        self.thread_ref, self.thread_gone, self._anchor = (board, no), False, anchor
+        self.db.nav_set(site, board, catalog_anchor=self.catalog.anchor(), thread_no=no)
+        self.db.recent_add(site, board, no, subject or f"No.{no}")
+        self.db.kv_set("last_view", f"thread:{site}:{board}:{no}")
+        self.thread_ref, self.thread_gone, self._anchor = (site, board, no), False, anchor
         self.banner.hide()
-        self.thread.begin(board, no, subject, self.db.bookmark_has(board, no))
-        cached = self.repo.cached_thread(board, no)
+        self.thread.begin(site, board, no, subject, self.db.bookmark_has(site, board, no))
+        cached = self.repo.cached_thread(site, board, no)
         if cached.data is not None:
             self.thread.load(cached.data, anchor)
             self.fetched_at, self.cached_flag = cached.fetched_at, False
@@ -326,7 +357,7 @@ class MainWindow(QMainWindow):
         if announce:
             self.status.message(f"Loading thread {no}…")
         self.refreshing = True
-        self.repo.request_thread(board, no)
+        self.repo.request_thread(site, board, no)
         if self.cfg.auto_refresh:
             self._thread_timer.start(self.cfg.refresh_seconds * 1000)
 
@@ -334,7 +365,7 @@ class MainWindow(QMainWindow):
         if self.thread_ref and not self.thread_gone:
             self.refreshing = True
             if self.repo.request_thread(*self.thread_ref):
-                self.status.message(f"Refreshing thread {self.thread_ref[1]}…")
+                self.status.message(f"Refreshing thread {self.thread_ref[2]}…")
             else:
                 self.status.message("Already refreshing…")
 
@@ -343,10 +374,10 @@ class MainWindow(QMainWindow):
             self.refreshing = True
             self.repo.request_thread(*self.thread_ref)
 
-    def _on_thread(self, board, no, res):
+    def _on_thread(self, site, board, no, res):
         for pg in self.pages.values():
             getattr(pg, "on_bookmarks_changed", lambda: None)()
-        if self.thread_ref != (board, no):
+        if self.thread_ref != (site, board, no):
             return
         self.refreshing = False
         label = f"thread {no}"
@@ -373,17 +404,17 @@ class MainWindow(QMainWindow):
     def _save_thread_state(self):
         if not self.thread_ref:
             return
-        b, n = self.thread_ref
+        s_, b, n = self.thread_ref
         a = self.thread.anchor()
-        self.db.nav_set(b, thread_no=n, thread_anchor=a)
+        self.db.nav_set(s_, b, thread_no=n, thread_anchor=a)
         if self.thread.loaded:
-            self.db.bookmark_seen(b, n, self.thread.replies(), a)
+            self.db.bookmark_seen(s_, b, n, self.thread.replies(), a)
 
     def leave_thread(self):
         if not self.thread_ref:
             return
         self._save_thread_state()
-        n = self.thread_ref[1]
+        n = self.thread_ref[2]
         self._thread_timer.stop()
         self.banner.hide()
         self.db.kv_set("last_view", "catalog")
@@ -439,12 +470,12 @@ class MainWindow(QMainWindow):
         if not ref:
             self.status.message("Select a thread first")
             return
-        b, n = ref["board"], ref["number"]
-        if self.db.bookmark_has(b, n):
-            self.db.bookmark_remove(b, n)
+        s_, b, n = ref["site"], ref["board"], ref["number"]
+        if self.db.bookmark_has(s_, b, n):
+            self.db.bookmark_remove(s_, b, n)
             self.status.message(f"Bookmark removed · /{b}/ No.{n}")
         else:
-            self.db.bookmark_add(b, n, ref["subject"], ref["replies"])
+            self.db.bookmark_add(s_, b, n, ref["subject"], ref["replies"])
             self.status.message(f"Bookmarked · /{b}/ No.{n}")
         for pg in self.pages.values():
             getattr(pg, "on_bookmarks_changed", lambda: None)()
@@ -538,15 +569,16 @@ class MainWindow(QMainWindow):
         if self.mode == "thread":
             self._save_thread_state()
         if self.board:
-            self.db.nav_set(self.board, catalog_anchor=self.catalog.anchor())
+            self.db.nav_set(self.site, self.board, catalog_anchor=self.catalog.anchor())
         super().closeEvent(e)
 
 
 def main():
-    from .api import Client
+    from .api import build_clients
     from .config import load_config, paths
     from .db import DB
     from .repo import Repo, evict
+    from .sites import load_sites
     from .theme import load_theme, stylesheet
 
     app = QApplication(sys.argv)
@@ -558,7 +590,9 @@ def main():
     theme = load_theme()
     app.setStyleSheet(stylesheet(theme, cfg.font_size))
     evict([p.thumbs, p.media], cfg.cache_mb * 1024 * 1024)
-    repo = Repo(DB(p.db_file), Client(), Client(min_interval=0.05), p, cfg)
+    sites = load_sites(cfg.extra_boards, cfg.hidden_sites)
+    api_clients, media_clients = build_clients(sites)
+    repo = Repo(DB(p.db_file), api_clients, media_clients, p, cfg, sites=sites)
     win = MainWindow(cfg, repo.db, repo, theme, p)
     win.show()
     return app.exec()

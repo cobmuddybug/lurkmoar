@@ -8,12 +8,12 @@ from samples import THREAD
 def open_viewer(qapp, tmp_path, att_index=0):
     win, api, repo, db = make_window(qapp)
     win.cfg.save_dir = str(tmp_path / "saved")
-    win.open_board("g")
+    win.open_board("4chan", "g")
     pump(qapp, lambda: win.catalog.model.rowCount() == 3)
-    win.open_thread("g", 100)
+    win.open_thread("4chan", "g", 100)
     assert pump(qapp, lambda: win.thread.loaded)
     att = win.thread.gallery()[att_index][1]
-    win.open_media("g", att)
+    win.open_media("4chan", "g", att)
     return win, repo, att
 
 
@@ -24,10 +24,10 @@ def loaded(qapp, win):
 def test_cached_media_path_is_none_until_downloaded(qapp, tmp_path):
     win, repo, att = open_viewer(qapp, tmp_path)
     assert loaded(qapp, win)
-    p = repo.cached_media_path("g", att)
+    p = repo.cached_media_path("4chan", "g", att)
     assert p is not None and p.exists() and p.suffix == ".jpg"
     other = Attachment(999, "z", ".png", 1, 1, 1, "", "https://i.4cdn.org/g/999.png", False)
-    assert repo.cached_media_path("g", other) is None
+    assert repo.cached_media_path("4chan", "g", other) is None
 
 
 def test_s_saves_original_filename_and_reports_it(qapp, tmp_path):
@@ -37,7 +37,7 @@ def test_s_saves_original_filename_and_reports_it(qapp, tmp_path):
     win.viewer.message.connect(got.append)
     press(win, "s")
     saved = tmp_path / "saved" / "gpu.jpg"
-    assert saved.exists() and saved.read_bytes() == repo.cached_media_path("g", att).read_bytes()
+    assert saved.exists() and saved.read_bytes() == repo.cached_media_path("4chan", "g", att).read_bytes()
     assert got and "Saved to" in got[0] and str(saved) in got[0]
 
 
@@ -52,7 +52,7 @@ def test_saving_twice_never_overwrites(qapp, tmp_path):
 def test_s_before_download_finishes_says_so(qapp, tmp_path):
     win, repo, att = open_viewer(qapp, tmp_path)           # no pump: still loading
     win.viewer.att = att
-    repo.cached_media_path = lambda b, a: None
+    repo.cached_media_path = lambda s, b, a: None
     got = []
     win.viewer.message.connect(got.append)
     press(win, "s")

@@ -342,7 +342,7 @@ class ThreadView(QWidget):
     back_requested = Signal()
     refresh_requested = Signal()
     bookmark_toggled = Signal()
-    media_requested = Signal(str, object)
+    media_requested = Signal(str, str, object)
     link_requested = Signal(str)
     cross_requested = Signal(str, int, int)
     message = Signal(str)
@@ -350,11 +350,11 @@ class ThreadView(QWidget):
     def __init__(self, theme, cfg, repo, db):
         super().__init__()
         self.t, self.cfg, self.repo, self.db = theme, cfg, repo, db
-        self.board, self.number, self.subject = "", 0, ""
+        self.site, self.board, self.number, self.subject = "4chan", "", 0, ""
         self.loaded, self.following, self.jumps, self._new = False, False, [], 0
         self.model = ThreadModel()
-        self.delegate = ThreadDelegate(theme, cfg, lambda a: repo.thumb_image(self.board, a),
-                                       lambda a: repo.thumb_failed(self.board, a))
+        self.delegate = ThreadDelegate(theme, cfg, lambda a: repo.thumb_image(self.site, self.board, a),
+                                       lambda a: repo.thumb_failed(self.site, self.board, a))
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
@@ -407,8 +407,8 @@ class ThreadView(QWidget):
         v.addWidget(self.list, 1)
 
     # ---- lifecycle
-    def begin(self, board, number, subject, bookmarked):
-        self.board, self.number, self.subject = board, number, subject
+    def begin(self, site, board, number, subject, bookmarked):
+        self.site, self.board, self.number, self.subject = site, board, number, subject
         self.loaded, self.following, self._new = False, False, 0
         self.jumps.clear()
         self.model.load([])
@@ -497,7 +497,7 @@ class ThreadView(QWidget):
         self.bm_btn.setText("★ Bookmarked" if on else "☆ Bookmark")
 
     def on_bookmarks_changed(self):
-        self.set_bookmarked(self.db.bookmark_has(self.board, self.number))
+        self.set_bookmarked(self.db.bookmark_has(self.site, self.board, self.number))
 
     # ---- quotes and jumps
     def current_post(self):
@@ -588,7 +588,7 @@ class ThreadView(QWidget):
             self.delegate.revealed_files.add(a.id)
             self.list.viewport().update()
             return
-        self.media_requested.emit(self.board, a)
+        self.media_requested.emit(self.site, self.board, a)
 
     def focus_list(self):
         self.list.setFocus()
@@ -633,7 +633,6 @@ class ThreadView(QWidget):
         if not self.number:
             return None
         post = self.current_post()
-        frag = f"#p{post.number}" if post else ""
-        return dict(board=self.board, number=self.number, subject=self.subject or f"No.{self.number}",
-                    replies=self.replies(),
-                    url=f"https://boards.4chan.org/{self.board}/thread/{self.number}{frag}")
+        url = self.repo.sites[self.site].page_url(self.board, self.number, post.number if post else None)
+        return dict(site=self.site, board=self.board, number=self.number, subject=self.subject or f"No.{self.number}",
+                    replies=self.replies(), url=url)

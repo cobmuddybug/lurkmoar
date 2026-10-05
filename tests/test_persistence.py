@@ -24,10 +24,10 @@ def test_bookmark_status_lines():
 
 def test_f_bookmarks_selected_thread_and_marks_row(qapp):
     win, _, _, db = make_window(qapp)
-    win.open_board("g")
+    win.open_board("4chan", "g")
     pump(qapp, lambda: win.catalog.model.rowCount() == 3)
     press(win, "f")
-    assert db.bookmark_has("4chan", "g", 100) and 100 in win.catalog.delegate.bookmarked
+    assert db.bookmark_has("4chan", "g", 100) and ("4chan", "g", 100) in win.catalog.delegate.bookmarked
     assert "Bookmarked" in win.status.msg.text()
     press(win, "f")
     assert not db.bookmark_has("4chan", "g", 100)
@@ -43,8 +43,8 @@ def test_bookmarks_screen_lists_and_opens(qapp):
     win.bookmarks.list.setCurrentRow(next(i for i, t in enumerate(items) if "GPU Prices" in t))
     got = []
     win.bookmarks.open_thread.disconnect()                   # keep the window's open_thread out of this test
-    win.bookmarks.open_thread.connect(lambda b, n: got.append((b, n)))
-    assert win.bookmarks.key_action("open") and got == [("g", 100)]
+    win.bookmarks.open_thread.connect(lambda s, b, n: got.append((s, b, n)))
+    assert win.bookmarks.key_action("open") and got == [("4chan", "g", 100)]
     press(win, Qt.Key_Escape)
     assert win.mode == "welcome"
 
@@ -91,10 +91,10 @@ def test_relaunch_restores_board_thread_and_position(qapp):
     win, api, repo, db = make_window(qapp)
     api.thread = {"posts": THREAD["posts"] + [{"no": 200 + i, "resto": 100, "name": "Anonymous", "time": 2000 + i,
                                                "com": "filler " * 40} for i in range(60)]}   # long enough to scroll
-    win.open_board("g")
+    win.open_board("4chan", "g")
     pump(qapp, lambda: win.catalog.model.rowCount() == 3)
     win.catalog.select(101)
-    win.open_thread("g", 100)
+    win.open_thread("4chan", "g", 100)
     pump(qapp, lambda: win.thread.loaded)
     win.thread.list.scrollTo(win.thread.model.index(2), QAbstractItemView.PositionAtTop)
     anchor = win.thread.anchor()

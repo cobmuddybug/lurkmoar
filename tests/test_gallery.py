@@ -38,9 +38,9 @@ def open_thread_with(qapp, extra=(), clip=None):
     if clip is not None:
         repo._cdn = ClipCdn(clip)
     api.thread = {"posts": THREAD["posts"] + list(extra)}
-    win.open_board("g")
+    win.open_board("4chan", "g")
     pump(qapp, lambda: win.catalog.model.rowCount() == 3)
-    win.open_thread("g", 100)
+    win.open_thread("4chan", "g", 100)
     assert pump(qapp, lambda: win.thread.loaded)
     return win, api, repo, db
 
@@ -58,7 +58,7 @@ def test_thread_gallery_lists_live_attachments_in_order(qapp):
 def test_arrows_cycle_and_wrap_with_counter(qapp):
     win, *_ = open_thread_with(qapp)
     v = win.viewer
-    win.open_media("g", win.thread.model.post_at(0).attachment)
+    win.open_media("4chan", "g", win.thread.model.post_at(0).attachment)
     assert v.isVisible() and "1 / 2" in v.info.text()
     press(win, Qt.Key_Right)
     assert "2 / 2" in v.info.text() and v.att.id == 1700000000003
@@ -71,7 +71,7 @@ def test_arrows_cycle_and_wrap_with_counter(qapp):
 def test_single_image_has_no_counter(qapp):
     win, *_ = open_thread_with(qapp)
     lone = Attachment(42, "lone", ".jpg", 10, 40, 30, "https://i.4cdn.org/g/42s.jpg", "https://i.4cdn.org/g/42.jpg", False)
-    win.open_media("g", lone)                                          # not part of this thread's gallery
+    win.open_media("4chan", "g", lone)                                          # not part of this thread's gallery
     assert " / " not in win.viewer.info.text()
     press(win, Qt.Key_Right)                                          # nothing to cycle, must not crash
     assert win.viewer.isVisible()
@@ -81,7 +81,7 @@ def test_late_response_for_previous_image_is_ignored(qapp):
     win, *_ = open_thread_with(qapp)
     v = win.viewer
     first = win.thread.model.post_at(0).attachment
-    win.open_media("g", first)
+    win.open_media("4chan", "g", first)
     press(win, Qt.Key_Right)
     v.canvas.set_note("Loading image…")
     from helpers import png_bytes
@@ -94,7 +94,7 @@ def test_late_response_for_previous_image_is_ignored(qapp):
 def test_closing_moves_thread_selection_to_last_shown_post(qapp):
     win, *_ = open_thread_with(qapp)
     win.thread.list.setCurrentIndex(win.thread.model.index(0))
-    win.open_media("g", win.thread.model.post_at(0).attachment)
+    win.open_media("4chan", "g", win.thread.model.post_at(0).attachment)
     press(win, Qt.Key_Right)
     press(win, Qt.Key_Escape)
     assert not win.viewer.isVisible()
@@ -104,7 +104,7 @@ def test_closing_moves_thread_selection_to_last_shown_post(qapp):
 def test_arrow_keys_do_not_move_thread_while_viewer_open(qapp):
     win, *_ = open_thread_with(qapp)
     win.thread.list.setCurrentIndex(win.thread.model.index(0))
-    win.open_media("g", win.thread.model.post_at(0).attachment)
+    win.open_media("4chan", "g", win.thread.model.post_at(0).attachment)
     press(win, Qt.Key_Down)
     assert win.thread.current_post().number == 100
 
@@ -114,7 +114,7 @@ def test_video_opens_in_viewer_and_downloads_to_a_file(qapp, webm):
     att = win.thread.model.post_at(win.thread.model.row_of(104)).attachment
     got = []
     repo.media_ready.connect(lambda url, data, err: got.append((url, data, err)))
-    win.open_media("g", att)
+    win.open_media("4chan", "g", att)
     assert win.viewer.isVisible()
     assert pump(qapp, lambda: bool(got))
     url, path, err = got[0]
@@ -128,7 +128,7 @@ def test_video_controls_and_cleanup(qapp, monkeypatch, webm):
     win, _, repo, _ = open_thread_with(qapp, [WEBM_POST], webm)
     v = win.viewer
     att = win.thread.model.post_at(win.thread.model.row_of(104)).attachment
-    win.open_media("g", att)
+    win.open_media("4chan", "g", att)
     pump(qapp, lambda: v.stack.currentWidget() is v.video)
     calls = []
     monkeypatch.setattr(v, "_toggle_play", lambda: calls.append("toggle"))
@@ -144,7 +144,7 @@ def test_video_controls_and_cleanup(qapp, monkeypatch, webm):
 def test_leaving_a_video_for_an_image_switches_back_to_the_canvas(qapp, webm):
     win, *_ = open_thread_with(qapp, [WEBM_POST], webm)
     v = win.viewer
-    win.open_media("g", win.thread.model.post_at(win.thread.model.row_of(104)).attachment)
+    win.open_media("4chan", "g", win.thread.model.post_at(win.thread.model.row_of(104)).attachment)
     pump(qapp, lambda: v.stack.currentWidget() is v.video)
     press(win, Qt.Key_Right)                        # wraps to the first image
     assert v.stack.currentWidget() is v.canvas and v.player.source().isEmpty()
@@ -157,7 +157,7 @@ def test_v_opens_external_player(qapp, monkeypatch):
     monkeypatch.setattr(um, "play_video", lambda cmd, url: calls.append((cmd, url)))
     win, *_ = open_thread_with(qapp, [WEBM_POST])
     att = win.thread.model.post_at(win.thread.model.row_of(104)).attachment
-    win.open_media("g", att)
+    win.open_media("4chan", "g", att)
     press(win, "v")
     assert calls == [("mpv", att.original_url)]
 
@@ -168,7 +168,7 @@ def test_missing_external_player_gives_a_message(qapp, monkeypatch):
     def boom(cmd, url): raise FileNotFoundError(cmd)
     monkeypatch.setattr(um, "play_video", boom)
     win, *_ = open_thread_with(qapp, [WEBM_POST])
-    win.open_media("g", win.thread.model.post_at(win.thread.model.row_of(104)).attachment)
+    win.open_media("4chan", "g", win.thread.model.post_at(win.thread.model.row_of(104)).attachment)
     got = []
     win.viewer.message.connect(got.append)
     press(win, "v")
@@ -178,6 +178,6 @@ def test_missing_external_player_gives_a_message(qapp, monkeypatch):
 def test_player_error_is_explained_and_points_at_v(qapp):
     win, *_ = open_thread_with(qapp, [WEBM_POST])
     v = win.viewer
-    win.open_media("g", win.thread.model.post_at(win.thread.model.row_of(104)).attachment)
+    win.open_media("4chan", "g", win.thread.model.post_at(win.thread.model.row_of(104)).attachment)
     v.on_player_error("decoder missing")
     assert "Couldn't play this video" in v.canvas.note and v.stack.currentWidget() is v.canvas

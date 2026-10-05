@@ -104,10 +104,10 @@ class CatalogDelegate(QStyledItemDelegate):
             p.setPen(QColor(th.foreground))
             p.drawText(box, Qt.AlignCenter | Qt.TextWordWrap, "SPOILER")
             return
-        img = self.thumb_fn(t.board, att)
+        img = self.thumb_fn(t.site, t.board, att)
         if img is None:
             p.drawText(box, Qt.AlignCenter | Qt.TextWordWrap,
-                       "Attachment unavailable" if self.failed_fn(t.board, att) else "…")
+                       "Attachment unavailable" if self.failed_fn(t.site, t.board, att) else "…")
             return
         s = img.size().scaled(box.size(), Qt.KeepAspectRatio)
         target = QRect(box.x() + (box.width() - s.width()) // 2,
@@ -138,7 +138,7 @@ class CatalogDelegate(QStyledItemDelegate):
         p.setFont(self.bold)
         p.setPen(QColor(th.foreground))
         fm = QFontMetrics(self.bold)
-        star = "★ " if t.number in self.bookmarked else ""
+        star = "★ " if (t.site, t.board, t.number) in self.bookmarked else ""
         p.drawText(QRect(x, y, w, fm.height()), Qt.AlignVCenter,
                    fm.elidedText(star + (t.subject or "(no subject)"), Qt.ElideRight, w))
         y += fm.height() + 2
@@ -163,14 +163,14 @@ class CatalogDelegate(QStyledItemDelegate):
 
 
 class CatalogView(QWidget):
-    open_thread = Signal(str, int)
+    open_thread = Signal(str, str, int)
     refresh_requested = Signal()
     favourite_board = Signal()
 
     def __init__(self, theme, cfg, repo, db):
         super().__init__()
-        self.t, self.cfg, self.db = theme, cfg, db
-        self.board = ""
+        self.t, self.cfg, self.db, self.repo = theme, cfg, db, repo
+        self.site, self.board = "4chan", ""
         self.model = CatalogModel()
         self.delegate = CatalogDelegate(theme, cfg, repo.thumb_image, repo.thumb_failed)
         v = QVBoxLayout(self)
@@ -223,9 +223,10 @@ class CatalogView(QWidget):
         v.addWidget(self.list, 1)
 
     # ---- board / data
-    def set_board(self, code, board=None):
-        self.board = code
-        self.title.setText(f"/{code}/ {board.title}" if board else f"/{code}/")
+    def set_board(self, site, code, board=None):
+        self.site, self.board = site, code
+        prefix = "" if site == "4chan" else self.repo.sites[site].name + " "
+        self.title.setText(f"{prefix}/{code}/ {board.title}" if board and board.title else f"{prefix}/{code}/")
         self.filter.blockSignals(True)
         self.filter.clear()
         self.filter.blockSignals(False)
@@ -310,7 +311,7 @@ class CatalogView(QWidget):
     def _open(self, row):
         t = self.model.thread_at(row)
         if t:
-            self.open_thread.emit(t.board, t.number)
+            self.open_thread.emit(t.site, t.board, t.number)
         return t is not None
 
     def focus_list(self):
@@ -338,10 +339,10 @@ class CatalogView(QWidget):
         t = self.model.thread_at(self.list.currentIndex().row())
         if not t:
             return None
-        return dict(board=t.board, number=t.number, replies=t.replies,
+        return dict(site=t.site, board=t.board, number=t.number, replies=t.replies,
                     subject=t.subject or t.comment[:60] or f"No.{t.number}",
-                    url=f"https://boards.4chan.org/{t.board}/thread/{t.number}")
+                    url=self.repo.sites[t.site].page_url(t.board, t.number))
 
     def on_bookmarks_changed(self):
-        self.delegate.bookmarked = {b.thread_id for b in self.db.bookmarks() if b.board == self.board}
+        self.delegate.bookmarked = {(b.site, b.board, b.thread_id) for b in self.db.bookmarks()}
         self.list.viewport().update()

@@ -24,9 +24,9 @@ def test_canvas_fit_zoom_actual(qapp):
 
 def open_thread_in(qapp):
     win, api, repo, db = make_window(qapp)
-    win.open_board("g")
+    win.open_board("4chan", "g")
     pump(qapp, lambda: win.catalog.model.rowCount() == 3)
-    win.open_thread("g", 100)
+    win.open_thread("4chan", "g", 100)
     assert pump(qapp, lambda: win.thread.loaded)
     return win, api, repo, db
 
@@ -37,7 +37,7 @@ def test_image_opens_in_overlay_and_thread_position_is_kept(qapp):
     tv.list.setCurrentIndex(tv.model.index(2))
     anchor, cur = tv.anchor(), tv.current_post().number
     att = tv.model.post_at(0).attachment
-    win.open_media("g", att)
+    win.open_media("4chan", "g", att)
     assert win.viewer.isVisible()
     assert pump(qapp, lambda: win.viewer.canvas.img is not None)
     assert "40×30" in win.viewer.info.text() or "800×600" in win.viewer.info.text()
@@ -56,7 +56,7 @@ def test_keys_do_not_leak_to_thread_while_overlay_open(qapp):
     win, *_ = open_thread_in(qapp)
     att = win.thread.model.post_at(0).attachment
     win.thread.list.setCurrentIndex(win.thread.model.index(0))
-    win.open_media("g", att)
+    win.open_media("4chan", "g", att)
     press(win, "b")
     assert win._picker is None or not win._picker.isVisible()
     press(win, Qt.Key_Escape)
@@ -65,7 +65,7 @@ def test_keys_do_not_leak_to_thread_while_overlay_open(qapp):
 def test_media_error_is_shown_not_raised(qapp):
     win, api, repo, _ = open_thread_in(qapp)
     att = win.thread.model.post_at(0).attachment
-    win.open_media("g", att)
+    win.open_media("4chan", "g", att)
     win.viewer.on_media(att.original_url, None, "http 503")
     assert "Couldn't load" in win.viewer.canvas.note
     press(win, Qt.Key_Escape)
@@ -77,5 +77,5 @@ def test_video_opens_in_the_overlay_not_straight_in_mpv(qapp, monkeypatch):
     monkeypatch.setattr(um, "play_video", lambda cmd, url: calls.append((cmd, url)))
     win, *_ = open_thread_in(qapp)
     th = win.catalog.model.thread_at(2)                         # .webm thread
-    win.open_media("g", th.thumbnail)
+    win.open_media("4chan", "g", th.thumbnail)
     assert win.viewer.isVisible() and calls == []

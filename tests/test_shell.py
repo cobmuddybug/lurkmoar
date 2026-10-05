@@ -58,7 +58,7 @@ def test_favourite_from_picker_shows_in_sidebar(qapp):
     press(win, "b")
     win._picker.search.setText("g")
     win._picker.fav_btn.click()
-    assert db.fav_boards() == ["g"] and win.sidebar.list.count() == 1
+    assert db.fav_boards() == [("4chan", "g")] and win.sidebar.list.count() == 1
     win._picker.reject()
 
 

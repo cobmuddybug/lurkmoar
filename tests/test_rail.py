@@ -9,8 +9,8 @@ def setup_rail(qapp, favs=("v", "g")):
     win.activateWindow()
     pump(qapp, lambda: "g" in win.boards)
     for f in favs:
-        db.fav_toggle(f)
-    win.open_board("g")
+        db.fav_toggle("4chan", f)
+    win.open_board("4chan", "g")
     pump(qapp, lambda: win.catalog.model.rowCount() == 3)
     return win, api, repo, db
 
@@ -40,7 +40,7 @@ def test_arrows_and_enter_pick_a_board(qapp):
 
 def test_right_and_escape_return_to_the_page_without_leaving_it(qapp):
     win, *_ = setup_rail(qapp)
-    win.open_thread("g", 100)
+    win.open_thread("4chan", "g", 100)
     pump(qapp, lambda: win.thread.loaded)
     press(win, Qt.Key_Left)
     assert focus(win) is win.sidebar.list
@@ -53,7 +53,7 @@ def test_right_and_escape_return_to_the_page_without_leaving_it(qapp):
 
 def test_picking_a_board_from_a_thread_goes_to_that_catalog(qapp):
     win, *_ = setup_rail(qapp)
-    win.open_thread("g", 100)
+    win.open_thread("4chan", "g", 100)
     pump(qapp, lambda: win.thread.loaded)
     press(win, Qt.Key_Left)
     press(win, Qt.Key_Up)
