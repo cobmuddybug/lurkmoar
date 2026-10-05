@@ -85,7 +85,7 @@ class MainWindow(QMainWindow):
         self.header.choose_board.connect(self.open_picker)
         self.header.refresh.connect(self.refresh)
         self.header.help.connect(self.show_help)
-        self.sidebar.board_chosen.connect(lambda c: self._rail_chose("4chan", c))      # shim until the rail is site-aware (Task 8)
+        self.sidebar.board_chosen.connect(self._rail_chose)
         self.sidebar.all_boards.connect(self.open_picker)
         self.sidebar.bookmarks.connect(lambda: self.show_bookmarks())
 
@@ -142,11 +142,13 @@ class MainWindow(QMainWindow):
     def _prefix(self):
         return "" if self.site == "4chan" else self.repo.sites[self.site].name + " "
 
-    def _fav_codes(self):
-        return [b for s, b in self.db.fav_boards() if s == "4chan"]      # shim until the rail is site-aware (Task 8)
+    def _boards_by_site(self):
+        return {sid: (list(self.boards.values()) if sid == "4chan" else list(s.boards))
+                for sid, s in self.repo.sites.items()}
 
     def _refresh_rail(self):
-        self.sidebar.set_boards(self._fav_codes(), self.board if self.site == "4chan" else None)
+        self.sidebar.set_boards(self.db.fav_boards(), (self.site, self.board) if self.board else None,
+                                self.repo.sites)
 
     def refresh(self):
         fn = getattr(self, f"_refresh_{self.mode}", None)
@@ -176,7 +178,7 @@ class MainWindow(QMainWindow):
     def _set_boards(self, boards):
         self.boards = {b.code: b for b in boards}
         if self._picker is not None and self._picker.isVisible():
-            self._picker.set_boards(boards, self._fav_codes())
+            self._picker.set_boards(self._boards_by_site(), self.db.fav_boards())
         self._update_where()
 
     def open_picker(self):
@@ -184,9 +186,9 @@ class MainWindow(QMainWindow):
             return
         if not self.boards:
             self.repo.request_boards()
-        p = BoardPicker(self, list(self.boards.values()), self._fav_codes())       # shim until Task 8
-        p.chosen.connect(lambda c: self.open_board("4chan", c))
-        p.favourite_toggled.connect(lambda c: self._toggle_fav("4chan", c))
+        p = BoardPicker(self, self._boards_by_site(), self.db.fav_boards(), self.repo.sites, self.site)
+        p.chosen.connect(lambda s, c: self.open_board(s, c))
+        p.favourite_toggled.connect(self._toggle_fav)
         self._picker = p
         p.open()
 
@@ -199,7 +201,7 @@ class MainWindow(QMainWindow):
         self._refresh_rail()
         self.catalog.set_favourite((self.site, self.board) in self.db.fav_boards())
         if self._picker is not None:
-            self._picker.set_favs(self._fav_codes())
+            self._picker.set_favs(self.db.fav_boards())
         self.status.message(f"/{code}/ {'added to' if on else 'removed from'} favourites")
 
     def toggle_board_favourite(self):

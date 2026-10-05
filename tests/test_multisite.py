@@ -111,3 +111,132 @@ def test_bookmarks_screen_prefixes_non_4chan_sites_and_checks_each_board_once(qa
     win.refresh()
     assert pump(qapp, lambda: any(u.endswith("lainchan.org/sec/catalog.json") for u in api.calls))
     assert pump(qapp, lambda: any(u.endswith("a.4cdn.org/g/catalog.json") for u in api.calls))
+
+
+from lurkmoar.models import Board
+from lurkmoar.sites import load_sites
+from lurkmoar.ui_misc import filter_site_boards, parse_typed
+
+SITES = load_sites()
+BY_SITE = {"4chan": [Board("g", "Technology", True, 10), Board("v", "Video Games", False, 10)],
+           **{sid: list(s.boards) for sid, s in SITES.items() if sid != "4chan"}}
+
+
+def rail_rows(win):
+    out = []
+    for i in range(win.sidebar.list.count()):
+        it = win.sidebar.list.item(i)
+        out.append(("H", it.text()) if it.data(Qt.UserRole) is None else ("B", it.data(Qt.UserRole)))
+    return out
+
+
+def test_rail_groups_favourites_under_site_headers_in_registry_order(qapp):
+    win, _, _, db = make_window(qapp)
+    for s, b in (("lainchan", "sec"), ("4chan", "g"), ("kissu", "b"), ("lainchan", "lit")):
+        db.fav_toggle(s, b)
+    win.sidebar.set_boards(db.fav_boards(), None, win.repo.sites)
+    assert rail_rows(win) == [("H", "── 4chan"), ("B", ("4chan", "g")), ("H", "── Kissu"), ("B", ("kissu", "b")),
+                              ("H", "── Lainchan"), ("B", ("lainchan", "sec")), ("B", ("lainchan", "lit"))]
+    header = win.sidebar.list.item(0)
+    assert not (header.flags() & Qt.ItemIsSelectable)
+
+
+def test_rail_shows_current_non_favourite_under_its_site_and_no_empty_headers(qapp):
+    win, _, _, db = make_window(qapp)
+    db.fav_toggle("4chan", "g")
+    win.sidebar.set_boards(db.fav_boards(), ("wizchan", "wiz"), win.repo.sites)
+    assert rail_rows(win) == [("H", "── 4chan"), ("B", ("4chan", "g")), ("H", "── Wizchan"), ("B", ("wizchan", "wiz"))]
+    assert win.sidebar.list.currentItem().data(Qt.UserRole) == ("wizchan", "wiz")
+    win.sidebar.set_boards([], None, win.repo.sites)
+    assert rail_rows(win) == []
+
+
+def test_rail_arrows_skip_headers_and_enter_opens_the_board(qapp):
+    win, api, repo, db = make_window(qapp)
+    pump(qapp, lambda: "g" in win.boards)
+    for s, b in (("4chan", "g"), ("lainchan", "sec")):
+        db.fav_toggle(s, b)
+    win.open_board("lainchan", "sec")
+    pump(qapp, lambda: win.catalog.model.rowCount() >= 2)
+    press(win, Qt.Key_Left)
+    assert win.sidebar.list.currentItem().data(Qt.UserRole) == ("lainchan", "sec")
+    press(win, Qt.Key_Up)                                  # skips the "Lainchan" header
+    assert win.sidebar.list.currentItem().data(Qt.UserRole) == ("4chan", "g")
+    press(win, Qt.Key_Up)                                  # nothing above: stays put
+    assert win.sidebar.list.currentItem().data(Qt.UserRole) == ("4chan", "g")
+    press(win, Qt.Key_Return)
+    assert (win.site, win.board) == ("4chan", "g")
+
+
+def test_filter_site_boards_matches_codes_titles_and_sites():
+    fav = {("lainchan", "sec")}
+    sec = filter_site_boards(BY_SITE, SITES, "sec", fav)
+    assert ("lainchan", "sec") in [(sid, b.code) for sid, bs in sec for b in bs]
+    lain = dict(filter_site_boards(BY_SITE, SITES, "lain", fav))
+    assert {b.code for b in lain["lainchan"]} == {b.code for b in SITES["lainchan"].boards}
+    one = filter_site_boards(BY_SITE, SITES, "lain sec", fav)
+    assert [(sid, [b.code for b in bs]) for sid, bs in one] == [("lainchan", ["sec"])]
+    assert [sid for sid, _ in filter_site_boards(BY_SITE, SITES, "", fav)][0] == "4chan"
+    assert filter_site_boards(BY_SITE, SITES, "zzzzzz", fav) == []
+    tech = [(sid, b.code) for sid, bs in filter_site_boards(BY_SITE, SITES, "technology", ()) for b in bs]
+    assert tech == [("4chan", "g")]
+
+
+def test_parse_typed_codes():
+    assert parse_typed("qa", SITES, "kissu") == ("kissu", "qa")
+    assert parse_typed("/qa/", SITES, "kissu") == ("kissu", "qa")
+    assert parse_typed("kissu qa", SITES, "lainchan") == ("kissu", "qa")
+    assert parse_typed("lain zzz", SITES, "4chan") == ("lainchan", "zzz")
+    assert parse_typed("../x", SITES, "kissu") is None and parse_typed("a b c", SITES, "kissu") is None
+    assert parse_typed("nosuch qa", SITES, "kissu") is None and parse_typed("", SITES, "kissu") is None
+    assert parse_typed("A", SITES, "kissu") == ("kissu", "a")        # typing is case-insensitive, like the filter
+    assert parse_typed("a/b", SITES, "kissu") is None
+
+
+def test_picker_groups_by_site_and_enter_opens(qapp):
+    win, *_ = make_window(qapp)
+    pump(qapp, lambda: "g" in win.boards)
+    press(win, "b")
+    p = win._picker
+
+    def rows():
+        return [(p.list.item(i).data(Qt.UserRole) or p.list.item(i).text()) for i in range(p.list.count())]
+
+    assert rows()[0] == "── 4chan" and ("lainchan", "sec") in rows() and "── Lainchan" in rows()
+    p.search.setText("lain sec")
+    assert rows() == ["── Lainchan", ("lainchan", "sec")]
+    assert p.list.currentItem().data(Qt.UserRole) == ("lainchan", "sec")
+    p._accept_current()
+    assert (win.site, win.board) == ("lainchan", "sec")
+
+
+def test_picker_typed_code_opens_an_unlisted_board_on_the_current_site(qapp):
+    win, *_ = make_window(qapp)
+    win.open_board("kissu", "b")
+    pump(qapp, lambda: win.catalog.model.rowCount() >= 2)
+    win.open_picker()
+    p = win._picker
+    p.search.setText("qa")
+    assert p.list.currentItem() is None
+    p._accept_current()
+    assert (win.site, win.board) == ("kissu", "qa")
+
+
+def test_picker_rejects_invalid_typed_code(qapp):
+    win, api, *_ = make_window(qapp)
+    n = len(api.calls)
+    win.open_picker()
+    win._picker.search.setText("../x")
+    win._picker._accept_current()
+    assert win.mode == "welcome" and win._picker.isVisible() and "valid board" in win._picker.msg.text()
+
+
+def test_favourite_in_picker_lands_in_the_right_rail_group(qapp):
+    win, _, _, db = make_window(qapp)
+    win.open_picker()
+    p = win._picker
+    p.search.setText("lain sec")
+    p.fav_btn.click()
+    assert db.fav_boards() == [("lainchan", "sec")]
+    assert rail_rows(win) == [("H", "── Lainchan"), ("B", ("lainchan", "sec"))]
+    p.reject()

@@ -4,7 +4,7 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QPushButton, QToolButton, QVBoxLayout, QWidget)
 
-from .sites import key as site_key
+from .sites import key as site_key, valid_board
 
 KEYS = [
     ("B", "Choose board"),
@@ -64,6 +64,48 @@ def filter_boards(boards, query, favs=()):
     return [b for s, _, b in sorted((x for x in scored if x[0] is not None), key=lambda x: x[:2])]
 
 
+def _site_matches(site, token):
+    return site.id.startswith(token) or site.name.lower().startswith(token)
+
+
+def filter_site_boards(boards_by_site, sites, query, favs=()):
+    """Filter boards across sites. 'lain' lists a whole site, 'lain sec' narrows to one board, 'sec' matches everywhere."""
+    toks = query.strip().lower().split()
+    favs_of = lambda sid: {b for s, b in favs if s == sid}
+    only, board_q = None, query
+    if len(toks) >= 2:
+        hit = {sid for sid, site in sites.items() if _site_matches(site, toks[0])}
+        if hit:
+            only, board_q = hit, " ".join(toks[1:])
+    out = []
+    for sid, site in sites.items():
+        if only is not None and sid not in only:
+            continue
+        boards = boards_by_site.get(sid, [])
+        if only is None and len(toks) == 1 and _site_matches(site, toks[0]):
+            sel = filter_boards(boards, "", favs_of(sid))          # the whole site
+        else:
+            sel = filter_boards(boards, board_q, favs_of(sid))
+        if sel:
+            out.append((sid, sel))
+    return out
+
+
+def parse_typed(query, sites, current_site):
+    """'qa' -> (current site, qa); 'kissu qa' -> (kissu, qa); None when it is not a valid board reference."""
+    toks = query.strip().lower().split()
+    if len(toks) == 1:
+        sid, code = current_site, toks[0].strip("/")
+    elif len(toks) == 2:
+        sid = next((i for i, s in sites.items() if _site_matches(s, toks[0])), None)
+        code = toks[1].strip("/")
+    else:
+        return None
+    if sid is None or sid not in sites or not valid_board(sites[sid], code):
+        return None
+    return sid, code
+
+
 class Header(QFrame):
     toggle_rail = Signal()
     choose_board = Signal()
@@ -100,7 +142,7 @@ class Header(QFrame):
 
 
 class Sidebar(QFrame):
-    board_chosen = Signal(str)
+    board_chosen = Signal(str, str)
     all_boards = Signal()
     bookmarks = Signal()
 
@@ -113,7 +155,7 @@ class Sidebar(QFrame):
         title = QLabel("BOARDS")
         title.setObjectName("muted")
         self.list = QListWidget()
-        self.list.itemClicked.connect(lambda it: self.board_chosen.emit(it.data(Qt.UserRole)))
+        self.list.itemClicked.connect(lambda it: it.data(Qt.UserRole) and self.board_chosen.emit(*it.data(Qt.UserRole)))
         self.all_btn = QPushButton("All boards…   B")
         self.all_btn.clicked.connect(self.all_boards)
         self.bm_btn = QPushButton("★ Bookmarks")
@@ -130,10 +172,14 @@ class Sidebar(QFrame):
     def has_focus(self):
         return self._focused() is not None
 
+    def _rows(self):
+        return [i for i in range(self.list.count()) if self.list.item(i).data(Qt.UserRole)]
+
     def enter(self):
         """Move keyboard focus into the rail with the current board highlighted."""
-        if self.list.count() and self.list.currentRow() < 0:
-            self.list.setCurrentRow(0)
+        rows = self._rows()
+        if rows and self.list.currentRow() not in rows:
+            self.list.setCurrentRow(rows[0])
         self.list.setFocus()
 
     def nav(self, key):
@@ -141,16 +187,20 @@ class Sidebar(QFrame):
         chain = (self.list, self.all_btn, self.bm_btn)
         cur = next((i for i, w in enumerate(chain) if w is self._focused()), 0)
         if cur == 0:
-            row, last = self.list.currentRow(), self.list.count() - 1
+            rows = self._rows()
+            row = self.list.currentRow()
+            i = rows.index(row) if row in rows else -1
             if key == Qt.Key_Down:
-                if row >= last:
+                if i < 0 and rows:
+                    self.list.setCurrentRow(rows[0])
+                elif i >= len(rows) - 1:
                     self.all_btn.setFocus()
                 else:
-                    self.list.setCurrentRow(row + 1)
+                    self.list.setCurrentRow(rows[i + 1])
                 return True
             if key == Qt.Key_Up:
-                if row > 0:                              # top of the list: nothing above, stay put
-                    self.list.setCurrentRow(row - 1)
+                if i > 0:                                # top of the list: nothing above, stay put
+                    self.list.setCurrentRow(rows[i - 1])
                 return True
             return False
         if key == Qt.Key_Down:
@@ -158,8 +208,8 @@ class Sidebar(QFrame):
             return True
         if key == Qt.Key_Up:
             chain[cur - 1].setFocus()
-            if cur == 1:
-                self.list.setCurrentRow(self.list.count() - 1)
+            if cur == 1 and self._rows():
+                self.list.setCurrentRow(self._rows()[-1])
             return True
         return False
 
@@ -173,18 +223,34 @@ class Sidebar(QFrame):
 
     def choose_current(self):
         it = self.list.currentItem()
-        if it:
-            self.board_chosen.emit(it.data(Qt.UserRole))
+        if it and it.data(Qt.UserRole):
+            self.board_chosen.emit(*it.data(Qt.UserRole))
 
-    def set_boards(self, favs, current):
+    def set_boards(self, favs, current, sites):
         self.list.clear()
-        codes = list(favs) + ([current] if current and current not in favs else [])
-        for c in codes:
-            it = QListWidgetItem(("★ " if c in favs else "   ") + f"/{c}/")
-            it.setData(Qt.UserRole, c)
-            self.list.addItem(it)
-            if c == current:
-                self.list.setCurrentItem(it)
+        wanted = list(favs)
+        if current and tuple(current) not in wanted:
+            wanted.append(tuple(current))
+        groups = {}
+        for sid, board in wanted:
+            groups.setdefault(sid, []).append(board)
+        order = [(sid, site.name) for sid, site in sites.items()] + [(sid, sid) for sid in groups if sid not in sites]
+        bold = QFont(self.list.font())
+        bold.setBold(True)
+        for sid, name in order:
+            boards = groups.get(sid)
+            if not boards:
+                continue
+            head = QListWidgetItem(f"── {name}")
+            head.setFlags(Qt.NoItemFlags)
+            head.setFont(bold)
+            self.list.addItem(head)
+            for board in boards:
+                it = QListWidgetItem(("★ " if (sid, board) in favs else "   ") + f"/{board}/")
+                it.setData(Qt.UserRole, (sid, board))
+                self.list.addItem(it)
+                if current and (sid, board) == tuple(current):
+                    self.list.setCurrentItem(it)
 
 
 class Banner(QFrame):
@@ -268,17 +334,18 @@ class Welcome(QWidget):
 
 
 class BoardPicker(QDialog):
-    chosen = Signal(str)
-    favourite_toggled = Signal(str)
+    chosen = Signal(str, str)
+    favourite_toggled = Signal(str, str)
 
-    def __init__(self, parent, boards, favs):
+    def __init__(self, parent, boards_by_site, favs, sites, current_site="4chan"):
         super().__init__(parent)
+        self.sites, self.current_site = sites, current_site
         self.setWindowTitle("Choose board")
         self.resize(480, 440)
         v = QVBoxLayout(self)
         v.addWidget(QLabel("Choose board"))
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Type to filter by code or name…")
+        self.search.setPlaceholderText("Type a board, a site, or  site board  (e.g. lain sec)…")
         self.search.textChanged.connect(self.refill)
         self.search.returnPressed.connect(self._accept_current)
         self.search.installEventFilter(self)
@@ -300,8 +367,11 @@ class BoardPicker(QDialog):
         for w in (self.search, self.msg, self.list):
             v.addWidget(w)
         v.addLayout(row)
-        self.set_boards(boards, favs)
+        self.set_boards(boards_by_site, favs)
         self.search.setFocus()
+
+    def _rows(self):
+        return [i for i in range(self.list.count()) if self.list.item(i).data(Qt.UserRole)]
 
     def eventFilter(self, o, e):
         if (o is self.search and e.type() == QEvent.KeyPress and e.key() == Qt.Key_Backspace
@@ -309,14 +379,17 @@ class BoardPicker(QDialog):
             self.reject()                           # nothing left to delete: Backspace backs out like Esc
             return True
         if o is self.search and e.type() == QEvent.KeyPress and e.key() in (Qt.Key_Up, Qt.Key_Down):
-            step = 1 if e.key() == Qt.Key_Down else -1
-            self.list.setCurrentRow(max(0, min(self.list.count() - 1, self.list.currentRow() + step)))
+            rows = self._rows()
+            if rows:
+                row = self.list.currentRow()
+                i = rows.index(row) if row in rows else 0
+                i = max(0, min(len(rows) - 1, i + (1 if e.key() == Qt.Key_Down else -1)))
+                self.list.setCurrentRow(rows[i])
             return True
         return super().eventFilter(o, e)
 
-    def set_boards(self, boards, favs):
-        self.boards, self.favs = list(boards), set(favs)
-        self.msg.setText("" if self.boards else "Loading boards…")
+    def set_boards(self, boards_by_site, favs):
+        self.boards_by_site, self.favs = dict(boards_by_site), set(favs)
         self.refill()
 
     def set_favs(self, favs):
@@ -324,34 +397,53 @@ class BoardPicker(QDialog):
         self.refill()
 
     def refill(self):
-        keep = self._current_code()
+        keep = self._current()
+        self.msg.setText("" if self.boards_by_site.get("4chan") else "Loading 4chan boards…")
         self.list.clear()
-        for b in filter_boards(self.boards, self.search.text(), self.favs):
-            it = QListWidgetItem(f"{'★' if b.code in self.favs else ' '} /{b.code}/".ljust(9)
-                                 + f" {b.title}" + ("" if b.worksafe else "   NSFW"))
-            it.setData(Qt.UserRole, b.code)
-            self.list.addItem(it)
-            if b.code == keep:
-                self.list.setCurrentItem(it)
-        if self.list.count() and self.list.currentRow() < 0:
-            self.list.setCurrentRow(0)
+        bold = QFont(self.list.font())
+        bold.setBold(True)
+        for sid, boards in filter_site_boards(self.boards_by_site, self.sites, self.search.text(), self.favs):
+            head = QListWidgetItem(f"── {self.sites[sid].name}")
+            head.setFlags(Qt.NoItemFlags)
+            head.setFont(bold)
+            self.list.addItem(head)
+            for b in boards:
+                it = QListWidgetItem(f"{'★' if (sid, b.code) in self.favs else ' '} /{b.code}/".ljust(9)
+                                     + (f" {b.title}" if b.title else "") + ("" if b.worksafe else "   NSFW"))
+                it.setData(Qt.UserRole, (sid, b.code))
+                self.list.addItem(it)
+                if (sid, b.code) == keep:
+                    self.list.setCurrentItem(it)
+        rows = self._rows()
+        if rows and self.list.currentRow() not in rows:
+            self.list.setCurrentRow(rows[0])
 
-    def _current_code(self):
+    def _current(self):
         it = self.list.currentItem()
         return it.data(Qt.UserRole) if it else None
 
     def _accept_item(self, it):
-        self.chosen.emit(it.data(Qt.UserRole))
-        self.accept()
+        if it.data(Qt.UserRole):
+            self.chosen.emit(*it.data(Qt.UserRole))
+            self.accept()
 
     def _accept_current(self):
-        if self.list.currentItem():
-            self._accept_item(self.list.currentItem())
+        cur = self._current()
+        if cur:
+            self.chosen.emit(*cur)
+            self.accept()
+            return
+        typed = parse_typed(self.search.text(), self.sites, self.current_site)
+        if typed is None:
+            self.msg.setText("No matching board, and that isn't a valid board code.")
+            return
+        self.chosen.emit(*typed)
+        self.accept()
 
     def _fav(self):
-        code = self._current_code()
-        if code:
-            self.favourite_toggled.emit(code)
+        cur = self._current()
+        if cur:
+            self.favourite_toggled.emit(*cur)
 
 
 class HelpDialog(QDialog):

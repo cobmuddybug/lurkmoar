@@ -24,14 +24,14 @@ def test_left_in_catalog_focuses_the_rail(qapp):
     win, *_ = setup_rail(qapp)
     press(win, Qt.Key_Left)
     assert focus(win) is win.sidebar.list and win.sidebar.isVisible()
-    assert win.sidebar.list.currentItem().data(Qt.UserRole) == "g"      # current board is highlighted
+    assert win.sidebar.list.currentItem().data(Qt.UserRole) == ("4chan", "g")      # current board is highlighted
 
 
 def test_arrows_and_enter_pick_a_board(qapp):
     win, *_ = setup_rail(qapp)
     press(win, Qt.Key_Left)
     press(win, Qt.Key_Up)                                                # favourites are v, g: v is above g
-    assert win.sidebar.list.currentItem().data(Qt.UserRole) == "v"
+    assert win.sidebar.list.currentItem().data(Qt.UserRole) == ("4chan", "v")
     assert win.board == "g"                                              # moving alone does not switch
     press(win, Qt.Key_Return)
     assert win.board == "v" and win.mode == "catalog"

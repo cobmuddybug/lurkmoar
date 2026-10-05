@@ -46,9 +46,14 @@ def test_picker_loads_boards_and_filters(qapp):
     assert pump(qapp, lambda: "g" in win.boards)
     press(win, "b")
     p = win._picker
-    assert p.list.count() == 3
+
+    def four():
+        return [p.list.item(i).data(Qt.UserRole) for i in range(p.list.count())
+                if p.list.item(i).data(Qt.UserRole) and p.list.item(i).data(Qt.UserRole)[0] == "4chan"]
+
+    assert four() == [("4chan", "g"), ("4chan", "v"), ("4chan", "vg")]
     p.search.setText("vid")
-    assert p.list.count() == 2
+    assert four() == [("4chan", "v"), ("4chan", "vg")]
     p.reject()
 
 
@@ -58,7 +63,7 @@ def test_favourite_from_picker_shows_in_sidebar(qapp):
     press(win, "b")
     win._picker.search.setText("g")
     win._picker.fav_btn.click()
-    assert db.fav_boards() == [("4chan", "g")] and win.sidebar.list.count() == 1
+    assert db.fav_boards() == [("4chan", "g")] and win.sidebar.list.count() == 2
     win._picker.reject()
 
 
