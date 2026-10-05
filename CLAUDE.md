@@ -1,8 +1,8 @@
 # LurkMoar
 
-Read-only 4chan reader for Omarchy (PySide6). **Start with `HANDOFF.md`**: it has the current state, the next step and the cautions.
+Read-only imageboard reader for Omarchy (PySide6). See `README.md` for usage and `docs/design/` for the design specs.
 
-- Spec: `docs/superpowers/specs/2026-10-03-lurkmoar-design.md`
-- Plan: `docs/superpowers/plans/2026-10-03-lurkmoar.md`
-- Never add POST/PUT/DELETE or any posting feature. Keep dependencies to PySide6 and httpx.
-- Tests: `.venv/bin/pytest` (offscreen Qt, fake network only).
+- Never add POST/PUT/DELETE or any posting feature: the API client exposes `get()` and `close()` only, and a test greps `src/` for write verbs.
+- Runtime dependencies stay `PySide6` and `httpx`. Only `api.py` imports httpx.
+- Tests: `.venv/bin/pytest` (offscreen Qt, fake network only). Never hit real sites from automated tests.
+- Sites live in `src/lurkmoar/sites.json`; a new site that fits an existing family is one entry there.

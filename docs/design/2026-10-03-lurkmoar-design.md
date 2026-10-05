@@ -1,6 +1,6 @@
 # LurkMoar: Design Spec
 
-Read-only 4chan reader for Omarchy. Source brief: the user's LurkMoar product brief (Board → Catalog → Thread → Post/Media). This spec records the lean decisions on top of it. Where it is silent, the brief governs.
+Read-only imageboard reader for Omarchy (Board → Catalog → Thread → Post/Media). This spec records the design decisions of the first version; later additions have their own documents in this folder. Where it is silent, follow the design philosophy: calm, discoverable, always show state, no invisible modes.
 
 ## Goals and constraints
 
@@ -49,7 +49,7 @@ Layering rule: UI → `repo` → `api`. Only `api.py` imports httpx.
 - Media: Enter/M/click on a thumbnail opens a full-window overlay. Wheel zooms, drag pans, and the keys +, -, 0, 1, O, C and Esc work as in the brief. WebM and MP4 play inside the same overlay (QtMultimedia, looping, muted at start). `←`/`→` cycle every image and video in the thread, wrapping at the ends, and closing the overlay selects the last post shown. `V` hands a video to the configured command (default `mpv`), which is also the fallback when the built-in player errors. Spoilers are covered with "SPOILER / Click or Space to reveal", and revealed state lasts for the session.
 - Per-board state (catalog scroll, selected thread, thread scroll) lives in the DB and is restored on Back and on relaunch.
 - Keys: as in the brief section 11. Arrow keys are first-class; J/K are aliases.
-- Theme: roles from the brief section 21. `theme.py` reads accent and background from the Omarchy theme's `colors.toml` when present and falls back to defaults.
+- Theme: semantic colour roles. `theme.py` reads accent, background and foreground from the Omarchy theme's `colors.toml` when present and falls back to defaults. The window watches the Omarchy `current` directory and re-applies the theme live when it changes (debounced; a missing or unreadable file keeps the current theme).
 - Settings: `config.json` with start-on-last-board, restore-thread, cache size, font size, thumbnail size, reveal-spoilers, video command, auto-refresh and interval. There is no settings UI in v1, and the file is documented in the README.
 
 ## HTML handling
@@ -62,12 +62,7 @@ pytest. Parser (fixtures with real-shaped comments, hostile tags), client (GET-o
 
 ## Install
 
-`install.sh`: `uv`-managed venv, a `~/.local/bin/lurkmoar` wrapper, and an icon in `~/.local/share/`. The old AppImage version is replaced:
-- The existing `SUPER + ALT + L` "LurkMoar" line in `~/.config/hypr/bindings.lua` is repointed at the new wrapper. A backup is made first, as for the other projects.
-- The old `LurkMoar.desktop` is overwritten by the new one.
-- `~/.local/opt/LurkMoar/` (the old AppImage) is left on disk and never deleted by the installer.
-
-The installer is idempotent.
+`install.sh`: a `uv`-managed venv, a `~/.local/bin/lurkmoar` wrapper, a desktop entry and an icon under `~/.local/share/`. It is idempotent and never touches keybindings unless asked: `./install.sh --bind` runs `scripts/bind_hyprland.py`, which adds (or re-points) a `LurkMoar` line in Omarchy's `~/.config/hypr/bindings.lua`, refuses keys that are already taken, and keeps a one-time backup of the file. An existing `LurkMoar.desktop` that differs is saved once as `LurkMoar.desktop.bak`.
 
 ## Attribution
 

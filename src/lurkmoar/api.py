@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import httpx
 
 API = "https://a.4cdn.org"
-USER_AGENT = "LurkMoar/0.1 (independent read-only client)"
+USER_AGENT = "LurkMoar/0.2 (independent read-only client)"
 BOARD_RE = re.compile(r"[a-z0-9]{1,10}")
 
 
