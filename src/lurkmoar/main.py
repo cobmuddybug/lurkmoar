@@ -5,10 +5,11 @@ import time
 from PySide6.QtCore import QByteArray, QEvent, Qt, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QHBoxLayout, QLineEdit, QMainWindow,
-                               QStackedWidget, QVBoxLayout, QWidget)
+                               QMessageBox, QStackedWidget, QVBoxLayout, QWidget)
 
 from .ui_catalog import CatalogView
 from .ui_media import open_url
+from .ui_thread import ThreadView
 from .ui_misc import (Banner, BoardPicker, HelpDialog, Header, Sidebar, StatusLine, Welcome, ago)
 
 
@@ -58,6 +59,19 @@ class MainWindow(QMainWindow):
         self._repaint.setSingleShot(True)
         self._repaint.setInterval(120)
         self._repaint.timeout.connect(self._repaint_lists)
+        self.thread = ThreadView(theme, cfg, repo, db)
+        self.add_page("thread", self.thread)
+        self.thread_ref = None
+        self.thread_gone = False
+        self.thread.back_requested.connect(self.leave_thread)
+        self.thread.refresh_requested.connect(self.refresh)
+        self.thread.bookmark_toggled.connect(self.toggle_bookmark)
+        self.thread.link_requested.connect(self._open_link)
+        self.thread.message.connect(self.status.message)
+        self.thread.cross_requested.connect(self._cross_thread)
+        self.repo.thread_ready.connect(self._on_thread)
+        self._thread_timer = QTimer(self)
+        self._thread_timer.timeout.connect(self._auto_refresh)
         self.header.toggle_rail.connect(self._toggle_rail)
         self.header.choose_board.connect(self.open_picker)
         self.header.refresh.connect(self.refresh)
@@ -117,6 +131,9 @@ class MainWindow(QMainWindow):
             return True
         page = self.page()
         if page is not None and page.key_action("back"):
+            return True
+        if self.mode == "thread":
+            self.leave_thread()
             return True
         if self.mode == "bookmarks":
             self.show_mode(self.prev_mode)
@@ -219,6 +236,118 @@ class MainWindow(QMainWindow):
             self.status.message(msg + " · just now")
         elif res.error is None:
             self.status.message(f"/{code}/ is up to date")
+
+    def _open_link(self, url):
+        if url:
+            open_url(url)
+            self.status.message(f"Opened in browser: {url}")
+
+    def _cross_thread(self, board, thread, post):
+        box = QMessageBox(self)
+        box.setWindowTitle("Open another thread?")
+        box.setText(f"This quote points to /{board}/ No.{thread}.")
+        a = box.addButton("Open here", QMessageBox.AcceptRole)
+        w = box.addButton("Open on 4chan.org", QMessageBox.ActionRole)
+        box.addButton("Cancel", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is a:
+            self.open_thread(board, thread)
+        elif box.clickedButton() is w:
+            self._open_link(f"https://boards.4chan.org/{board}/thread/{thread}#p{post}")
+
+    def open_thread(self, board, no, announce=True):
+        if board != self.board:
+            self.open_board(board)
+        elif self.mode == "thread":
+            self._save_thread_state()
+        nav = self.db.nav_get(board)
+        bm = next((b for b in self.db.bookmarks() if b.board == board and b.thread_id == no), None)
+        anchor = nav.thread_anchor if nav.thread_no == no else (bm.last_opened_post if bm else 0)
+        sel = self.catalog.model.row_of(no)
+        summary = self.catalog.model.thread_at(sel) if sel >= 0 else None
+        subject = (summary.subject or summary.comment[:60]) if summary else (bm.subject if bm else "")
+        self.db.nav_set(board, catalog_anchor=self.catalog.anchor(), thread_no=no)
+        self.db.recent_add(board, no, subject or f"No.{no}")
+        self.db.kv_set("last_view", f"thread:{board}:{no}")
+        self.thread_ref, self.thread_gone, self._anchor = (board, no), False, anchor
+        self.banner.hide()
+        self.thread.begin(board, no, subject, self.db.bookmark_has(board, no))
+        cached = self.repo.cached_thread(board, no)
+        if cached.data is not None:
+            self.thread.load(cached.data, anchor)
+            self.fetched_at, self.cached_flag = cached.fetched_at, False
+        else:
+            self.fetched_at = None
+        self.show_mode("thread")
+        if announce:
+            self.status.message(f"Loading thread {no}…")
+        self.refreshing = True
+        self.repo.request_thread(board, no)
+        if self.cfg.auto_refresh:
+            self._thread_timer.start(self.cfg.refresh_seconds * 1000)
+
+    def _refresh_thread(self):
+        if self.thread_ref and not self.thread_gone:
+            self.refreshing = True
+            if self.repo.request_thread(*self.thread_ref):
+                self.status.message(f"Refreshing thread {self.thread_ref[1]}…")
+            else:
+                self.status.message("Already refreshing…")
+
+    def _auto_refresh(self):
+        if self.mode == "thread" and not self.thread_gone and self.isActiveWindow():
+            self.refreshing = True
+            self.repo.request_thread(*self.thread_ref)
+
+    def _on_thread(self, board, no, res):
+        for pg in self.pages.values():
+            getattr(pg, "on_bookmarks_changed", lambda: None)()
+        if self.thread_ref != (board, no):
+            return
+        self.refreshing = False
+        label = f"thread {no}"
+        if res.gone:
+            self.thread_gone = True
+            self._thread_timer.stop()
+            self.fetched_at = res.fetched_at
+            back = ("Back to /%s/" % board, self.leave_thread)
+            if self.thread.loaded:
+                self.banner.show_message("This thread is no longer available.\nYou're reading a cached copy.", [back])
+            else:
+                self.banner.show_message("This thread is no longer available.\nNo cached copy.", [back])
+            return
+        if res.data is None:
+            self.note_result(res, label, self._refresh_thread)
+            return
+        new = self.thread.apply(res.data, self._anchor)
+        self.note_result(res, label, self._refresh_thread)
+        if new:
+            self.status.message(f"Thread updated · {new} new post{'s' * (new != 1)}")
+        elif new is None and not res.from_cache:
+            self.status.message(f"Thread {no} loaded")
+
+    def _save_thread_state(self):
+        if not self.thread_ref:
+            return
+        b, n = self.thread_ref
+        a = self.thread.anchor()
+        self.db.nav_set(b, thread_no=n, thread_anchor=a)
+        if self.thread.loaded:
+            self.db.bookmark_seen(b, n, self.thread.replies(), a)
+
+    def leave_thread(self):
+        if not self.thread_ref:
+            return
+        self._save_thread_state()
+        n = self.thread_ref[1]
+        self._thread_timer.stop()
+        self.banner.hide()
+        self.db.kv_set("last_view", "catalog")
+        self.thread.jumps.clear()
+        self.show_mode("catalog")
+        self.catalog.select(n)
+        self.refreshing = False
+        self.thread_ref = None
 
     # ---- shared feedback
     def note_result(self, res, label, retry):
@@ -333,6 +462,10 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, e):
         self.db.kv_set("geometry", bytes(self.saveGeometry().toBase64()).decode())
+        if self.mode == "thread":
+            self._save_thread_state()
+        if self.board:
+            self.db.nav_set(self.board, catalog_anchor=self.catalog.anchor())
         super().closeEvent(e)
 
 
