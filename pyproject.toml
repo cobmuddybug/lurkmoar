@@ -1,0 +1,23 @@
+[project]
+name = "lurkmoar"
+version = "0.1.0"
+description = "Read-only imageboard browser for Omarchy"
+requires-python = ">=3.11"
+dependencies = ["PySide6>=6.6", "httpx>=0.27"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[project.scripts]
+lurkmoar = "lurkmoar.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lurkmoar"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
