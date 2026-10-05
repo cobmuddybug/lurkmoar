@@ -67,3 +67,10 @@ def test_quote_target():
     assert quote_target("#p12") == (None, None, 12)
     assert quote_target("/v/thread/55#p56") == ("v", 55, 56)
     assert quote_target("/g/") is None and quote_target(None) is None
+
+
+def test_deeply_nested_unclosed_tags_with_data_are_fast():
+    t = time.time()
+    parse_comment("<span>x" * 50000)
+    parse_comment("<b>x" * 50000)
+    assert time.time() - t < 2

@@ -163,3 +163,25 @@ def test_repo_dedupes_and_emits(qapp, tmp_path):
     assert got and got[0][0] == "g" and len(got[0][1].data) == 3
     assert len(client.calls) == 1
     assert repo.cached_catalog("g").data is not None
+
+
+def test_failed_refresh_does_not_expire_bookmarks_or_overwrite_counts():
+    t = [1000.0]
+    c, db = core({CAT: [ok(CATALOG), ApiError("network: ConnectError")]}, t)
+    c.catalog("g")
+    db.bookmark_add("g", 999, "newer than cache", 10)
+    t[0] += 11
+    r = c.catalog("g")
+    assert r.error and r.from_cache
+    assert not db.bookmarks()[0].expired
+
+
+def test_failed_thread_refresh_keeps_bookmark_counts():
+    t = [1000.0]
+    c, db = core({THR: [ok(THREAD), ApiError("network: ConnectError")]}, t)
+    db.bookmark_add("g", 100, "x", 50)
+    c.thread("g", 100)
+    db.bookmark_latest("g", 100, 77)
+    t[0] += 11
+    assert c.thread("g", 100).error
+    assert db.bookmarks()[0].latest_replies == 77

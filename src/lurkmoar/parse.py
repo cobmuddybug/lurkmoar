@@ -21,11 +21,8 @@ class _Parser(HTMLParser):
         self.skip = 0
 
     def _cur(self):
-        styles, target = set(), None
-        for _, s, t in self.stack:
-            styles |= s
-            target = t or target
-        return frozenset(styles), target
+        # each stack entry already holds the cumulative styles/target, so this is O(1)
+        return (self.stack[-1][1], self.stack[-1][2]) if self.stack else (frozenset(), None)
 
     def _add(self, text):
         st, t = self._cur()
@@ -60,7 +57,8 @@ class _Parser(HTMLParser):
         elif tag == "span":
             if "deadlink" in cls: s = {"quote"}
             elif "quote" in cls: s = {"greentext"}
-        self.stack.append((tag, frozenset(s), t))
+        styles, target = self._cur()
+        self.stack.append((tag, styles | frozenset(s), t or target))
 
     def handle_endtag(self, tag):
         if tag in ("script", "style"):

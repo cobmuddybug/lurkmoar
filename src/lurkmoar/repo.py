@@ -75,7 +75,7 @@ class Core:
     def catalog(self, board, offline=False):
         res = self._typed(self._load(f"catalog:{board}", catalog_url(board), LIVE_TTL, offline),
                           lambda d: flatten_catalog(board, d))
-        if res.data is not None and not offline:
+        if res.data is not None and not offline and res.error is None:
             self.db.bookmarks_observe(board, {t.number: t.replies for t in res.data})
         return res
 
@@ -87,7 +87,7 @@ class Core:
             return res
         if res.gone:
             self.db.bookmark_expire(board, no)
-        elif res.data is not None:
+        elif res.data is not None and res.error is None:
             self.db.bookmark_latest(board, no, res.data.replies)
             if not res.from_cache:
                 self.db.prune_threads()
