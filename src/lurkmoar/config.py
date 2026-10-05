@@ -47,6 +47,7 @@ class Config:
     thumb_size: int = 96
     reveal_spoilers: bool = False
     video_command: str = "mpv"
+    video_start_muted: bool = True
     auto_refresh: bool = True
     refresh_seconds: int = 30
 

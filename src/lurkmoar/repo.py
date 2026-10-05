@@ -13,7 +13,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QImage
 
 from .api import ApiError, NotFound, boards_url, catalog_url, thread_url
-from .models import Board, Thread, flatten_catalog
+from .models import Board, Thread, flatten_catalog, is_video
 
 BOARDS_TTL = 6 * 3600
 LIVE_TTL = 10  # the API asks clients not to refetch the same resource faster than this
@@ -252,6 +252,8 @@ class Repo(QObject):
                     tmp.replace(dest)
             except (ApiError, OSError) as e:
                 return None, str(e)
+            if is_video(att.extension):
+                return str(dest), ""                  # videos play from the cached file
             img = QImage(str(dest))
             return (img, "") if not img.isNull() else (None, "Can't decode this image")
 

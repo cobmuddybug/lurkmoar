@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QAbstractButton, QApplication, QHBoxLayout, QLine
                                QMessageBox, QStackedWidget, QVBoxLayout, QWidget)
 
 from .ui_catalog import CatalogView
-from .ui_media import MediaViewer, is_video, open_url, play_video
+from .ui_media import MediaViewer, open_url
 from .ui_thread import ThreadView
 from .ui_misc import (Banner, BoardPicker, BookmarksView, HelpDialog, Header, Sidebar, StatusLine,
                       Welcome, ago)
@@ -75,6 +75,7 @@ class MainWindow(QMainWindow):
         self._thread_timer.timeout.connect(self._auto_refresh)
         self.viewer = MediaViewer(root, theme, cfg, repo)
         self.viewer.message.connect(self.status.message)
+        self.viewer.closed.connect(lambda att_id: att_id and self.thread.select_attachment(att_id))
         self.thread.media_requested.connect(self.open_media)
         self.bookmarks = BookmarksView(db)
         self.add_page("bookmarks", self.bookmarks)
@@ -274,14 +275,7 @@ class MainWindow(QMainWindow):
                 pass
 
     def open_media(self, board, att):
-        if is_video(att.extension):
-            try:
-                play_video(self.cfg.video_command, att.original_url)
-                self.status.message(f"Playing in {self.cfg.video_command.split()[0]}…")
-            except OSError:
-                self.status.message(f"Couldn't start {self.cfg.video_command.split()[0]}. Is it installed?")
-            return
-        self.viewer.show_attachment(board, att)
+        self.viewer.show_attachment(board, att, [a for _, a in self.thread.gallery()])
 
     def _open_link(self, url):
         if url:

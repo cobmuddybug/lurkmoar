@@ -10,6 +10,8 @@ No posting, no captcha, no accounts: the network layer exposes `GET` and nothing
 
 Press `?` inside the app for shortcuts. `B` chooses a board, `/` filters the catalog, `Enter` opens,
 `Esc` goes back (and undoes quote jumps first).
+In a thread, opening any image or video starts a gallery: `←`/`→` cycle through the thread's media (wrapping),
+`Space` pauses, `M` mutes, `[` `]` seek, `V` hands the video to mpv.
 
 ## Config
 
@@ -23,7 +25,8 @@ Press `?` inside the app for shortcuts. `B` chooses a board, `/` filters the cat
 | font_size | 11 | body text size in pt |
 | thumb_size | 96 | thumbnail box in px |
 | reveal_spoilers | false | show spoilered images without clicking |
-| video_command | "mpv" | player for .webm/.mp4 |
+| video_command | "mpv" | external player, opened with `V` while a video is showing |
+| video_start_muted | true | videos in the viewer start muted (`M` toggles) |
 | auto_refresh | true | refresh the open thread |
 | refresh_seconds | 30 | interval (minimum 10) |
 

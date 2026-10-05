@@ -5,6 +5,11 @@ from dataclasses import dataclass
 from .parse import Span, parse_comment, plain_text, references
 
 CDN = "https://i.4cdn.org"
+VIDEO_EXT = {".webm", ".mp4"}
+
+
+def is_video(ext: str) -> bool:
+    return ext.lower() in VIDEO_EXT
 
 
 @dataclass(frozen=True)

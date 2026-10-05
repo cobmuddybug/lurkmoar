@@ -71,21 +71,11 @@ def test_media_error_is_shown_not_raised(qapp):
     press(win, Qt.Key_Escape)
 
 
-def test_video_goes_to_player_not_overlay(qapp, monkeypatch):
-    import lurkmoar.main as m
+def test_video_opens_in_the_overlay_not_straight_in_mpv(qapp, monkeypatch):
+    import lurkmoar.ui_media as um
     calls = []
-    monkeypatch.setattr(m, "play_video", lambda cmd, url: calls.append((cmd, url)))
+    monkeypatch.setattr(um, "play_video", lambda cmd, url: calls.append((cmd, url)))
     win, *_ = open_thread_in(qapp)
     th = win.catalog.model.thread_at(2)                         # .webm thread
     win.open_media("g", th.thumbnail)
-    assert calls == [("mpv", th.thumbnail.original_url)] and not win.viewer.isVisible()
-
-
-def test_missing_player_gives_a_message(qapp, monkeypatch):
-    import lurkmoar.main as m
-
-    def boom(cmd, url): raise FileNotFoundError(cmd)
-    monkeypatch.setattr(m, "play_video", boom)
-    win, *_ = open_thread_in(qapp)
-    win.open_media("g", win.catalog.model.thread_at(2).thumbnail)
-    assert "mpv" in win.status.msg.text()
+    assert win.viewer.isVisible() and calls == []

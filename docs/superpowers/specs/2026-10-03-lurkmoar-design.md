@@ -11,7 +11,7 @@ Read-only 4chan reader for Omarchy. Source brief: the user's LurkMoar product br
 
 ## Out of scope (v1)
 
-Phase 6 polish, archive.json, grid catalog, density/theme settings UI, integrated video player, GIF animation, sync/accounts. Kept because the brief requires them: shortcut help overlay (`?`), About text, deleted-thread handling.
+Phase 6 polish, archive.json, grid catalog, density/theme settings UI, GIF animation, sync/accounts. Kept because the brief requires them: shortcut help overlay (`?`), About text, deleted-thread handling.
 
 ## Layout
 
@@ -46,7 +46,7 @@ Layering rule: UI → `repo` → `api`. Only `api.py` imports httpx.
 - Catalog rows: thumbnail, subject, "Anonymous · No.", excerpt, replies/images/active-ago. Toolbar: Filter field (`/`), Sort dropdown (activity, replies, images, created), refresh. "N of M threads" feedback while filtering.
 - Thread posts: header line (name, No., time, OP/capcode badges), body painted from `parse.py` spans, thumbnail with a size/type caption. NEW divider before the first new post after refresh. Scroll position is preserved on append. The "● Following new posts / ○ Follow paused" indicator is shown in the header. Refresh appends only new rows.
 - Quote links: click or Enter on `>>N` pushes the current position onto a jump stack and scrolls to the target, which flashes briefly. Esc pops the stack, and only when the stack is empty does it leave the thread. Cross-thread references offer to open the thread or the official URL.
-- Media: Enter/M/click on a thumbnail opens a full-window overlay. Wheel zooms, drag pans, and the keys +, -, 0, 1, O, C and Esc work as in the brief. WebM and MP4 launch through the configured command (default `mpv`). Spoilers are covered with "SPOILER / Click or Space to reveal", and revealed state lasts for the session.
+- Media: Enter/M/click on a thumbnail opens a full-window overlay. Wheel zooms, drag pans, and the keys +, -, 0, 1, O, C and Esc work as in the brief. WebM and MP4 play inside the same overlay (QtMultimedia, looping, muted at start). `←`/`→` cycle every image and video in the thread, wrapping at the ends, and closing the overlay selects the last post shown. `V` hands a video to the configured command (default `mpv`), which is also the fallback when the built-in player errors. Spoilers are covered with "SPOILER / Click or Space to reveal", and revealed state lasts for the session.
 - Per-board state (catalog scroll, selected thread, thread scroll) lives in the DB and is restored on Back and on relaunch.
 - Keys: as in the brief section 11. Arrow keys are first-class; J/K are aliases.
 - Theme: roles from the brief section 21. `theme.py` reads accent and background from the Omarchy theme's `colors.toml` when present and falls back to defaults.

@@ -14,6 +14,8 @@ KEYS = [
     ("Enter", "Open selected thread; in a thread follow a quote or open media"),
     ("Esc", "Back / close (undoes quote jumps first)"),
     ("M", "Open selected post's media"),
+    ("← →", "Previous / next image or video in the thread (wraps around)"),
+    ("Space  M  [ ]  V", "In a video: pause, mute, seek 5 s back / forward, open in mpv"),
     ("Space", "Reveal spoilered image"),
     ("F", "Bookmark selected thread / open thread"),
     ("Shift+F", "Favourite current board"),

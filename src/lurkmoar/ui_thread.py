@@ -561,6 +561,24 @@ class ThreadView(QWidget):
             self.delegate.invalidate(post.number)
             self.list.viewport().update()
 
+    def gallery(self):
+        """Every live attachment in thread order, as (post number, Attachment)."""
+        out = []
+        for r in range(self.model.rowCount()):
+            p = self.model.post_at(r)
+            if p and p.attachment and not p.attachment.deleted:
+                out.append((p.number, p.attachment))
+        return out
+
+    def select_attachment(self, att_id):
+        for r in range(self.model.rowCount()):
+            p = self.model.post_at(r)
+            if p and p.attachment and p.attachment.id == att_id:
+                idx = self.model.index(r)
+                self.list.setCurrentIndex(idx)
+                self.list.scrollTo(idx, QAbstractItemView.EnsureVisible)
+                return
+
     def open_media(self, post):
         a = post.attachment
         if not a or a.deleted:
