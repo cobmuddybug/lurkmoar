@@ -110,15 +110,21 @@ def test_cross_thread_quote_emits_request(qapp):
 def test_refresh_appends_new_posts_without_moving_reader(qapp):
     win, api, repo, _ = open_thread_in(qapp)
     tv = win.thread
+    filler = [{"no": 300 + i, "resto": 100, "name": "Anonymous", "time": 1500 + i,
+               "com": "filler " * 30} for i in range(40)]
+    base = {"posts": THREAD["posts"] + filler}                # long: mid-thread is never "at the bottom"
+    api.thread = base
+    tv.load(Thread.from_api("g", 100, base))
     tv.list.setCurrentIndex(tv.model.index(1))
     tv.list.scrollTo(tv.model.index(1), QAbstractItemView.PositionAtTop)
     top_before = tv.anchor()
+    assert top_before == 101 and not tv.following
     extra = [{"no": 200 + i, "resto": 100, "name": "Anonymous", "time": 2000 + i,
               "com": f"new {i}"} for i in range(7)]
-    api.thread = {"posts": THREAD["posts"] + extra}
+    api.thread = {"posts": base["posts"] + extra}
     repo.core.now = lambda: time.time() + 100
     win._refresh_thread()
-    assert pump(qapp, lambda: tv.model.post_count() == 11)
+    assert pump(qapp, lambda: tv.model.post_count() == 51)
     assert tv.anchor() == top_before
     items = [tv.model.data(tv.model.index(r), 256) for r in range(tv.model.rowCount())]
     assert sum(isinstance(i, Divider) for i in items) == 1
