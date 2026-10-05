@@ -12,6 +12,7 @@ from lurkmoar.db import DB
 from lurkmoar.repo import Repo
 from lurkmoar.theme import DEFAULT, stylesheet
 from samples import BOARDS, CATALOG, THREAD
+from samples_vichan import FILES_CATALOG, FILES_THREAD, VICHAN_CATALOG, VICHAN_THREAD
 
 
 def ok(obj, lm="Mon"):
@@ -31,12 +32,24 @@ def png_bytes(w=40, h=30):
 class FakeApi:
     def __init__(self):
         self.catalog, self.thread = CATALOG, THREAD
-        self.fail, self.gone, self.calls = False, set(), []
+        self.vichan_catalog, self.vichan_thread = VICHAN_CATALOG, VICHAN_THREAD
+        self.files_catalog, self.files_thread = FILES_CATALOG, FILES_THREAD
+        self.fail, self.gone, self.calls, self.fail_hosts = False, set(), [], set()
 
     def get(self, url, last_modified=None):
         self.calls.append(url)
-        if self.fail:
+        host = url.split("/")[2]
+        if self.fail or host in self.fail_hosts:
             raise ApiError("network: down")
+        if host != "a.4cdn.org":
+            if url.endswith("catalog.json"):
+                return ok(self.files_catalog if "leftypol" in host else self.vichan_catalog)
+            m = re.search(r"/res/(\d+)\.json$", url)
+            if m:
+                if int(m.group(1)) in self.gone:
+                    raise NotFound("nf", 404)
+                return ok(self.files_thread if "leftypol" in host else self.vichan_thread)
+            raise NotFound("nf", 404)
         if url.endswith("boards.json"):
             return ok(BOARDS)
         if url.endswith("catalog.json"):

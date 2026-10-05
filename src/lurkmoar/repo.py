@@ -12,8 +12,10 @@ from typing import Any
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QImage
 
-from .api import ApiError, NotFound, boards_url, catalog_url, thread_url
-from .models import Board, Thread, flatten_catalog, is_video
+from .adapters import adapter_for
+from .api import ApiError, NotFound, boards_url
+from .models import Board, is_video
+from .sites import key as site_key, load_sites
 
 BOARDS_TTL = 6 * 3600
 LIVE_TTL = 10  # the API asks clients not to refetch the same resource faster than this
@@ -29,10 +31,14 @@ class Result:
 
 
 class Core:
-    def __init__(self, db, client, now=time.time):
+    def __init__(self, db, client, now=time.time, sites=None):
         self.db, self.client, self.now = db, client, now
+        self.sites = sites or load_sites()
 
-    def _load(self, key, url, ttl, offline):
+    def _client(self, site):
+        return self.client[site] if isinstance(self.client, dict) else self.client
+
+    def _load(self, key, url, ttl, offline, site="4chan"):
         row = self.db.cache_get(key)
         cached = None
         if row:
@@ -45,7 +51,7 @@ class Core:
             return Result(cached, stamp, True)
         ims = row.last_modified if cached is not None else None
         try:
-            r = self.client.get(url, ims)
+            r = self._client(site).get(url, ims)
             if r.status == 304 and cached is not None:
                 self.db.cache_touch(key, self.now())
                 return Result(cached, self.now(), False)
@@ -72,23 +78,34 @@ class Core:
         res = self._load("boards", boards_url(), BOARDS_TTL, offline)
         return self._typed(res, lambda d: [Board.from_api(b) for b in d["boards"]])
 
-    def catalog(self, board, offline=False):
-        res = self._typed(self._load(f"catalog:{board}", catalog_url(board), LIVE_TTL, offline),
-                          lambda d: flatten_catalog(board, d))
+    def catalog(self, site, board, offline=False):
+        s = self.sites[site]
+        ad = adapter_for(s)
+        try:
+            url = ad.catalog_url(s, board)
+        except ValueError:
+            return Result(None, None, False, error="bad board")
+        res = self._typed(self._load(site_key(site, "catalog", board), url, LIVE_TTL, offline, site),
+                          lambda d: ad.parse_catalog(s, board, d))
         if res.data is not None and not offline and res.error is None:
-            self.db.bookmarks_observe(board, {t.number: t.replies for t in res.data})
+            self.db.bookmarks_observe(site, board, {t.number: t.replies for t in res.data if t.board == board})
         return res
 
-    def thread(self, board, no, offline=False):
-        key = f"thread:{board}:{no}"
-        res = self._typed(self._load(key, thread_url(board, no), LIVE_TTL, offline),
-                          lambda d: Thread.from_api(board, no, d))
+    def thread(self, site, board, no, offline=False):
+        s = self.sites[site]
+        ad = adapter_for(s)
+        try:
+            url = ad.thread_url(s, board, no)
+        except ValueError:
+            return Result(None, None, False, error="bad board")
+        res = self._typed(self._load(site_key(site, "thread", board, no), url, LIVE_TTL, offline, site),
+                          lambda d: ad.parse_thread(s, board, no, d))
         if offline:
             return res
         if res.gone:
-            self.db.bookmark_expire(board, no)
+            self.db.bookmark_expire(site, board, no)
         elif res.data is not None and res.error is None:
-            self.db.bookmark_latest(board, no, res.data.replies)
+            self.db.bookmark_latest(site, board, no, res.data.replies)
             if not res.from_cache:
                 self.db.prune_threads()
         return res
@@ -112,8 +129,9 @@ def evict(dirs, max_bytes):
 class ThumbLoader:
     """Newest-first thumbnail fetch+decode off the GUI thread. Old requests fall off a bounded queue."""
 
-    def __init__(self, client, directory, on_change, workers=4, cap=64, keep=400):
-        self.client, self.dir, self.on_change = client, Path(directory), on_change
+    def __init__(self, client_for, directory, on_change, workers=4, cap=64, keep=400):
+        self.client_for, self.dir, self.on_change = client_for, Path(directory), on_change
+        self._winner: dict = {}
         self._cap, self._keep = cap, keep
         self._q: deque = deque()
         self._queued, self._active = set(), set()
@@ -123,7 +141,8 @@ class ThumbLoader:
         for _ in range(workers):
             threading.Thread(target=self._run, daemon=True).start()
 
-    def image(self, key, url):
+    def image(self, key, urls, group=None, site="4chan"):
+        urls = (urls,) if isinstance(urls, str) else tuple(urls)
         with self._cv:
             img = self._images.get(key)
             if img is not None:
@@ -133,11 +152,43 @@ class ThumbLoader:
                 return None
             if time.time() - self._failed.get(key, 0) < 60:
                 return None
-            self._q.append((key, url))
+            if not any(urls):
+                self._failed[key] = time.time()
+                return None
+            self._q.append((key, urls, group, site))
             self._queued.add(key)
             while len(self._q) > self._cap:
                 self._queued.discard(self._q.popleft()[0])
             self._cv.notify()
+        return None
+
+    def _ordered(self, urls, group):
+        ext = self._winner.get(group)
+        if not ext:
+            return [u for u in urls if u]
+        return sorted((u for u in urls if u), key=lambda u: not u.endswith(ext))   # stable: winner first
+
+    def _fetch(self, key, urls, group, site):
+        dest = self.dir / key
+        if dest.exists():
+            data = dest.read_bytes()
+            os.utime(dest)
+            img = QImage.fromData(data)
+            return None if img.isNull() else img
+        for u in self._ordered(urls, group):
+            try:
+                body = self.client_for(site).get(u).body
+            except (ApiError, OSError):
+                continue
+            img = QImage.fromData(body)
+            if img.isNull():
+                continue
+            tmp = dest.with_suffix(dest.suffix + ".tmp")
+            tmp.write_bytes(body)
+            tmp.replace(dest)
+            if group:
+                self._winner[group] = Path(u).suffix
+            return img
         return None
 
     def failed(self, key):
@@ -148,24 +199,12 @@ class ThumbLoader:
             with self._cv:
                 while not self._q:
                     self._cv.wait()
-                key, url = self._q.pop()
+                key, urls, group, site = self._q.pop()
                 self._queued.discard(key)
                 self._active.add(key)
-            img = None
             try:
-                dest = self.dir / key
-                if dest.exists():
-                    data = dest.read_bytes()
-                    os.utime(dest)
-                else:
-                    data = self.client.get(url).body
-                    tmp = dest.with_suffix(dest.suffix + ".tmp")
-                    tmp.write_bytes(data)
-                    tmp.replace(dest)
-                img = QImage.fromData(data)
-                if img.isNull():
-                    img = None
-            except (ApiError, OSError):
+                img = self._fetch(key, urls, group, site)
+            except Exception:                              # a worker must never die on one bad thumbnail
                 img = None
             with self._cv:
                 self._active.discard(key)
@@ -180,21 +219,22 @@ class ThumbLoader:
 
 class Repo(QObject):
     boards_ready = Signal(object)
-    catalog_ready = Signal(str, object)
-    thread_ready = Signal(str, int, object)
+    catalog_ready = Signal(str, str, object)
+    thread_ready = Signal(str, str, int, object)
     media_ready = Signal(str, object, str)
     thumbs_changed = Signal()
 
-    def __init__(self, db, api_client, cdn_client, paths, cfg, now=time.time):
+    def __init__(self, db, api_client, cdn_client, paths, cfg, now=time.time, sites=None):
         super().__init__()
         self.db, self.paths, self.cfg = db, paths, cfg
-        self.core = Core(db, api_client, now)
+        self.sites = sites or load_sites(cfg.extra_boards, cfg.hidden_sites)
+        self.core = Core(db, api_client, now, self.sites)
         self._cdn = cdn_client
         self._api_pool = ThreadPoolExecutor(1)  # serial queue; the client also rate-limits
         self._media_pool = ThreadPoolExecutor(2)
         self._inflight: set = set()
         self._lock = threading.Lock()
-        self.thumbs = ThumbLoader(cdn_client, paths.thumbs, self.thumbs_changed.emit)
+        self.thumbs = ThumbLoader(self._cdn_for, paths.thumbs, self.thumbs_changed.emit)
 
     def _submit(self, pool, key, fn, done):
         with self._lock:
@@ -217,35 +257,46 @@ class Repo(QObject):
     def request_boards(self):
         return self._submit(self._api_pool, "boards", self.core.boards, self.boards_ready.emit)
 
-    def request_catalog(self, board):
-        return self._submit(self._api_pool, ("c", board), lambda: self.core.catalog(board),
-                            lambda r: self.catalog_ready.emit(board, r))
+    def _cdn_for(self, site):
+        return self._cdn[site] if isinstance(self._cdn, dict) else self._cdn
 
-    def request_thread(self, board, no):
-        return self._submit(self._api_pool, ("t", board, no), lambda: self.core.thread(board, no),
-                            lambda r: self.thread_ready.emit(board, no, r))
+    @staticmethod
+    def _file_stem(site, board, att_id):
+        return f"{board}_{att_id}" if site == "4chan" else f"{site}_{board}_{att_id}"
+
+    def request_catalog(self, site, board):
+        return self._submit(self._api_pool, ("c", site, board), lambda: self.core.catalog(site, board),
+                            lambda r: self.catalog_ready.emit(site, board, r))
+
+    def request_thread(self, site, board, no):
+        return self._submit(self._api_pool, ("t", site, board, no), lambda: self.core.thread(site, board, no),
+                            lambda r: self.thread_ready.emit(site, board, no, r))
 
     def cached_boards(self): return self.core.boards(offline=True)
-    def cached_catalog(self, board): return self.core.catalog(board, offline=True)
-    def cached_thread(self, board, no): return self.core.thread(board, no, offline=True)
+    def cached_catalog(self, site, board): return self.core.catalog(site, board, offline=True)
+    def cached_thread(self, site, board, no): return self.core.thread(site, board, no, offline=True)
 
-    def _thumb_key(self, board, att): return f"{board}_{att.id}s.jpg"
+    def _thumb_key(self, site, board, att): return f"{self._file_stem(site, board, att.id)}s.jpg"
 
-    def thumb_image(self, board, att):
+    def thumb_image(self, site, board, att):
         if att is None or att.deleted:
             return None
-        return self.thumbs.image(self._thumb_key(board, att), att.thumbnail_url)
+        return self.thumbs.image(self._thumb_key(site, board, att), (att.thumbnail_url, *att.thumbnail_alts),
+                                 f"{site}/{board}", site)
 
-    def thumb_failed(self, board, att):
-        return bool(att) and self.thumbs.failed(self._thumb_key(board, att))
+    def thumb_failed(self, site, board, att):
+        return bool(att) and self.thumbs.failed(self._thumb_key(site, board, att))
 
-    def cached_media_path(self, board, att):
+    def _media_path(self, site, board, att):
+        return self.paths.media / f"{self._file_stem(site, board, att.id)}{att.extension}"
+
+    def cached_media_path(self, site, board, att):
         """The downloaded original, or None if it hasn't finished downloading."""
-        p = self.paths.media / f"{board}_{att.id}{att.extension}"
+        p = self._media_path(site, board, att)
         return p if p.is_file() else None
 
-    def request_media(self, board, att):
-        url, dest = att.original_url, self.paths.media / f"{board}_{att.id}{att.extension}"
+    def request_media(self, site, board, att):
+        url, dest = att.original_url, self._media_path(site, board, att)
 
         def work():
             try:
@@ -253,7 +304,7 @@ class Repo(QObject):
                     os.utime(dest)
                 else:
                     tmp = dest.with_suffix(dest.suffix + ".tmp")
-                    tmp.write_bytes(self._cdn.get(url).body)
+                    tmp.write_bytes(self._cdn_for(site).get(url).body)
                     tmp.replace(dest)
             except (ApiError, OSError) as e:
                 return None, str(e)
@@ -262,5 +313,5 @@ class Repo(QObject):
             img = QImage(str(dest))
             return (img, "") if not img.isNull() else (None, "Can't decode this image")
 
-        return self._submit(self._media_pool, ("m", url), work,
+        return self._submit(self._media_pool, ("m", site, url), work,
                             lambda r: self.media_ready.emit(url, r[0], r[1]))

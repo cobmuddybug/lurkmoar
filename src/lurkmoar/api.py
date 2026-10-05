@@ -81,3 +81,12 @@ class Client:
 
     def close(self):
         self._http.close()
+
+
+def build_clients(sites):
+    """One JSON client and one (faster) media client per site host; each enforces its own spacing."""
+    api_clients, media_clients = {}, {}
+    for sid, site in sites.items():
+        api_clients[sid] = Client(min_interval=site.json_interval)
+        media_clients[sid] = Client(min_interval=site.media_interval)
+    return api_clients, media_clients
