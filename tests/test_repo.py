@@ -73,7 +73,7 @@ def test_network_error_without_cache():
 def test_thread_404_is_gone_and_expires_bookmark():
     t = [1000.0]
     c, db = core({THR: [ok(THREAD), NotFound("nf", 404)]}, t)
-    db.bookmark_add("g", 100, "x", 3)
+    db.bookmark_add("4chan", "g", 100, "x", 3)
     assert c.thread("g", 100).data.replies == 3
     t[0] += 11
     r = c.thread("g", 100)
@@ -89,8 +89,8 @@ def test_thread_404_without_cache():
 
 def test_catalog_updates_bookmarks():
     c, db = core({CAT: [ok(CATALOG)]}, [0.0])
-    db.bookmark_add("g", 100, "a", 10)
-    db.bookmark_add("g", 999, "gone", 10)
+    db.bookmark_add("4chan", "g", 100, "a", 10)
+    db.bookmark_add("4chan", "g", 999, "gone", 10)
     c.catalog("g")
     by = {b.thread_id: b for b in db.bookmarks()}
     assert by[100].latest_replies == 183 and not by[100].expired and by[999].expired
@@ -169,7 +169,7 @@ def test_failed_refresh_does_not_expire_bookmarks_or_overwrite_counts():
     t = [1000.0]
     c, db = core({CAT: [ok(CATALOG), ApiError("network: ConnectError")]}, t)
     c.catalog("g")
-    db.bookmark_add("g", 999, "newer than cache", 10)
+    db.bookmark_add("4chan", "g", 999, "newer than cache", 10)
     t[0] += 11
     r = c.catalog("g")
     assert r.error and r.from_cache
@@ -179,9 +179,9 @@ def test_failed_refresh_does_not_expire_bookmarks_or_overwrite_counts():
 def test_failed_thread_refresh_keeps_bookmark_counts():
     t = [1000.0]
     c, db = core({THR: [ok(THREAD), ApiError("network: ConnectError")]}, t)
-    db.bookmark_add("g", 100, "x", 50)
+    db.bookmark_add("4chan", "g", 100, "x", 50)
     c.thread("g", 100)
-    db.bookmark_latest("g", 100, 77)
+    db.bookmark_latest("4chan", "g", 100, 77)
     t[0] += 11
     assert c.thread("g", 100).error
     assert db.bookmarks()[0].latest_replies == 77

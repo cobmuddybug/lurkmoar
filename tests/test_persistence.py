@@ -27,15 +27,15 @@ def test_f_bookmarks_selected_thread_and_marks_row(qapp):
     win.open_board("g")
     pump(qapp, lambda: win.catalog.model.rowCount() == 3)
     press(win, "f")
-    assert db.bookmark_has("g", 100) and 100 in win.catalog.delegate.bookmarked
+    assert db.bookmark_has("4chan", "g", 100) and 100 in win.catalog.delegate.bookmarked
     assert "Bookmarked" in win.status.msg.text()
     press(win, "f")
-    assert not db.bookmark_has("g", 100)
+    assert not db.bookmark_has("4chan", "g", 100)
 
 
 def test_bookmarks_screen_lists_and_opens(qapp):
     win, _, _, db = make_window(qapp)
-    db.bookmark_add("g", 100, "GPU Prices", 3)
+    db.bookmark_add("4chan", "g", 100, "GPU Prices", 3)
     win.show_bookmarks()
     assert win.mode == "bookmarks"
     items = [win.bookmarks.list.item(i).text() for i in range(win.bookmarks.list.count())]
@@ -51,18 +51,18 @@ def test_bookmarks_screen_lists_and_opens(qapp):
 
 def test_delete_removes_bookmark(qapp):
     win, _, _, db = make_window(qapp)
-    db.bookmark_add("g", 100, "x", 1)
+    db.bookmark_add("4chan", "g", 100, "x", 1)
     win.show_bookmarks()
     win.bookmarks.list.setCurrentRow(next(i for i in range(win.bookmarks.list.count())
                                           if win.bookmarks.list.item(i).data(Qt.UserRole)))
     press(win, Qt.Key_Delete)
-    assert not db.bookmark_has("g", 100)
+    assert not db.bookmark_has("4chan", "g", 100)
 
 
 def test_refresh_on_bookmarks_checks_each_board_once_and_updates_counts(qapp):
     win, api, repo, db = make_window(qapp)
-    db.bookmark_add("g", 100, "GPU", 10)
-    db.bookmark_add("g", 101, "other", 1)
+    db.bookmark_add("4chan", "g", 100, "GPU", 10)
+    db.bookmark_add("4chan", "g", 101, "other", 1)
     win.show_bookmarks()
     win.refresh()
     def shown():
@@ -73,7 +73,7 @@ def test_refresh_on_bookmarks_checks_each_board_once_and_updates_counts(qapp):
 
 def test_journey_e_expired_bookmark_explains_and_offers_cache(qapp):
     win, api, repo, db = make_window(qapp)
-    db.bookmark_add("g", 999, "Upcoming RPG Thread", 10)
+    db.bookmark_add("4chan", "g", 999, "Upcoming RPG Thread", 10)
     db.cache_put("thread:g:999", json.dumps(THREAD), None, now=0)
     api.gone.add(999)
     win.show_bookmarks()
@@ -110,7 +110,7 @@ def test_relaunch_restores_board_thread_and_position(qapp):
 
 def test_recent_threads_listed(qapp):
     win, _, _, db = make_window(qapp)
-    db.recent_add("g", 100, "Seen it")
+    db.recent_add("4chan", "g", 100, "Seen it")
     win.show_bookmarks()
     text = " ".join(win.bookmarks.list.item(i).text() for i in range(win.bookmarks.list.count()))
     assert "Seen it" in text and "RECENTLY VISITED" in text
