@@ -81,7 +81,7 @@ def cleanup():
         w.deleteLater()
 
 
-def make_window(qapp, api=None, db=None):
+def make_window(qapp, api=None, db=None, theme_path=None):
     from lurkmoar.main import MainWindow
     p = paths()
     cfg = load_config(p)
@@ -90,7 +90,9 @@ def make_window(qapp, api=None, db=None):
     db = db or DB(":memory:")
     repo = Repo(db, api, FakeCdn(), p, cfg)
     qapp.setStyleSheet(stylesheet(DEFAULT, cfg.font_size))
-    win = MainWindow(cfg, db, repo, DEFAULT, p)
+    from lurkmoar.theme import read_theme
+    theme_path = theme_path or (p.config / "no-omarchy" / "theme" / "colors.toml")   # tests never watch the real theme
+    win = MainWindow(cfg, db, repo, read_theme(theme_path) or DEFAULT, p, theme_path=theme_path)
     win.isActiveWindow = lambda: True  # offscreen platform never reports active
     win.show()
     WINDOWS.append(win)

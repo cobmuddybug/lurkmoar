@@ -46,12 +46,13 @@ def derive(bg, fg, accent, error="#f7768e") -> Theme:
 DEFAULT = derive("#0f1115", "#e6e6e6", "#7aa2f7")
 
 
-def load_theme(path=COLORS_TOML) -> Theme:
+def read_theme(path=COLORS_TOML) -> "Theme | None":
+    """The theme in a colors.toml, or None if the file is missing or unreadable (callers keep what they have)."""
     try:
         with open(path, "rb") as f:
             c = tomllib.load(f)
     except (OSError, tomllib.TOMLDecodeError):
-        return DEFAULT
+        return None
 
     def pick(key, default):
         v = c.get(key)
@@ -59,6 +60,10 @@ def load_theme(path=COLORS_TOML) -> Theme:
 
     return derive(pick("background", DEFAULT.background), pick("foreground", DEFAULT.foreground),
                   pick("accent", DEFAULT.accent), pick("color1", "#f7768e"))
+
+
+def load_theme(path=COLORS_TOML) -> Theme:
+    return read_theme(path) or DEFAULT
 
 
 def stylesheet(t: Theme, pt: int) -> str:

@@ -168,6 +168,11 @@ class MediaViewer(QFrame):
         repo.media_ready.connect(self.on_media)
         self.hide()
 
+    def set_theme(self, theme):
+        self.setStyleSheet(f"#viewer {{ background: {theme.background}; }}")
+        self.canvas.bg, self.canvas.fg = theme.background, theme.foreground
+        self.canvas.update()
+
     # ---- showing things
     def show_attachment(self, site, board, att, gallery=None):
         items = list(gallery or [])

@@ -222,6 +222,10 @@ class CatalogView(QWidget):
         v.addWidget(self.note)
         v.addWidget(self.list, 1)
 
+    def set_theme(self, theme):
+        self.t = self.delegate.t = theme
+        self.list.viewport().update()
+
     # ---- board / data
     def set_board(self, site, code, board=None):
         self.site, self.board = site, code

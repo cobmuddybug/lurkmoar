@@ -415,6 +415,12 @@ class ThreadView(QWidget):
         v.addWidget(head)
         v.addWidget(self.list, 1)
 
+    def set_theme(self, theme):
+        self.t = self.delegate.t = theme
+        self.delegate.invalidate()                  # post documents have the old colours baked into their HTML
+        self.list.scheduleDelayedItemsLayout()
+        self.list.viewport().update()
+
     # ---- lifecycle
     def begin(self, site, board, number, subject, bookmarked):
         self.site, self.board, self.number, self.subject = site, board, number, subject

@@ -1,8 +1,9 @@
 """LurkMoar main window: header, rail, page stack, banner, status line, global keys."""
 import sys
 import time
+from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QEvent, Qt, QTimer
+from PySide6.QtCore import QByteArray, QEvent, QFileSystemWatcher, Qt, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QHBoxLayout, QLineEdit, QMainWindow,
                                QMessageBox, QStackedWidget, QVBoxLayout, QWidget)
@@ -16,7 +17,7 @@ from .ui_misc import (Banner, BoardPicker, BookmarksView, HelpDialog, Header, Si
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, cfg, db, repo, theme, paths):
+    def __init__(self, cfg, db, repo, theme, paths, theme_path=None):
         super().__init__()
         self.cfg, self.db, self.repo, self.theme, self.paths = cfg, db, repo, theme, paths
         self.mode = self.prev_mode = "welcome"
@@ -100,6 +101,7 @@ class MainWindow(QMainWindow):
         self._ticker = QTimer(self)
         self._ticker.timeout.connect(self._tick)
         self._ticker.start(1000)
+        self._start_theme_watch(theme_path)
         self._restore_geometry()
         self.show_mode("welcome")
         self._restore()
@@ -213,6 +215,51 @@ class MainWindow(QMainWindow):
     def show_help(self):
         self._help = HelpDialog(self)
         self._help.open()
+
+    # ---- live theme: follow Omarchy when the theme changes
+    def _start_theme_watch(self, theme_path):
+        from .theme import COLORS_TOML
+        self.theme_path = Path(theme_path or COLORS_TOML)
+        self._theme_timer = QTimer(self)
+        self._theme_timer.setSingleShot(True)
+        self._theme_timer.setInterval(300)           # one theme switch fires many file events; settle first
+        self._theme_timer.timeout.connect(self._reload_theme)
+        self._theme_watcher = QFileSystemWatcher(self)
+        self._theme_watcher.directoryChanged.connect(lambda _p: self._theme_event())
+        self._theme_watcher.fileChanged.connect(lambda _p: self._theme_event())
+        self._rewatch_theme()
+
+    def _rewatch_theme(self):
+        """Omarchy replaces the whole theme directory, so the old watches die with it: re-arm after every change."""
+        w = self._theme_watcher
+        stale = w.directories() + w.files()
+        if stale:
+            w.removePaths(stale)
+        current = self.theme_path.parent.parent
+        paths = [str(p) for p in (current, self.theme_path.parent, current / "theme.name") if p.exists()]
+        if paths:
+            w.addPaths(paths)
+
+    def _theme_event(self):
+        self._theme_timer.start()
+
+    def _reload_theme(self):
+        from .theme import read_theme
+        self._rewatch_theme()
+        new = read_theme(self.theme_path)
+        if new is None or new == self.theme:         # mid-swap (file missing), unreadable, or nothing changed
+            return
+        self.apply_theme(new)
+
+    def apply_theme(self, theme):
+        from .theme import stylesheet
+        self.theme = theme
+        QApplication.instance().setStyleSheet(stylesheet(theme, self.cfg.font_size))
+        self.catalog.set_theme(theme)
+        self.thread.set_theme(theme)
+        self.viewer.set_theme(theme)
+        self._repaint_lists()
+        self.status.message("Theme updated")
 
     def _repaint_lists(self):
         for pg in self.pages.values():
