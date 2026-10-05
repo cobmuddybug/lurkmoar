@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=LurkMoar
+Comment=Read-only imageboard browser
+Exec=lurkmoar
+Icon=lurkmoar
+Terminal=false
+Type=Application
+Categories=Network;
+StartupWMClass=LurkMoar
