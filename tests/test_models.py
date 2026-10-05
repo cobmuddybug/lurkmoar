@@ -39,3 +39,15 @@ def test_hostile_comment_in_post():
     p = Post.from_api("g", {"no": 1, "com": "hi<script>x</script>", "time": 1})
     assert p.comment_plain == "hi"
     assert p.name == "Anonymous"
+
+
+def test_post_attachment_property_and_images_count():
+    from lurkmoar.models import Attachment
+    a = Attachment("1", "f", ".jpg", 1, 1, 1, "t", "o", False)
+    d = Attachment(0, "", "", 0, 0, 0, "", "", False, deleted=True)
+    from lurkmoar.models import Post, Thread
+    p = Post(1, 1, "n", "", "", "", 0, (a, d), (), "", ())
+    q = Post(2, 1, "n", "", "", "", 0, (), (), "", ())
+    assert p.attachment is a and q.attachment is None
+    assert Thread("g", 1, [p, q]).images == 1
+    assert Post.from_api("g", {"no": 3, "time": 1}).site == "4chan"

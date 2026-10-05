@@ -37,6 +37,7 @@ class Attachment:
     original_url: str
     spoiler: bool
     deleted: bool = False
+    thumbnail_alts: tuple = ()
 
 
 def attachment_from_api(board, d):
@@ -63,18 +64,19 @@ class ThreadSummary:
     modified_at: int
     sticky: bool
     closed: bool
+    site: str = "4chan"
 
     @classmethod
-    def from_api(cls, board, d):
+    def from_api(cls, board, d, site="4chan"):
         created = d.get("time", 0)
         return cls(board, d["no"], html.unescape(d.get("sub", "")),
                    plain_text(parse_comment(d.get("com", ""))), attachment_from_api(board, d),
                    d.get("replies", 0), d.get("images", 0), created,
-                   d.get("last_modified", created), bool(d.get("sticky")), bool(d.get("closed")))
+                   d.get("last_modified", created), bool(d.get("sticky")), bool(d.get("closed")), site)
 
 
-def flatten_catalog(board, pages):
-    return [ThreadSummary.from_api(board, t) for page in pages for t in page.get("threads", [])]
+def flatten_catalog(board, pages, site="4chan"):
+    return [ThreadSummary.from_api(board, t, site) for page in pages for t in page.get("threads", [])]
 
 
 @dataclass(frozen=True)
@@ -86,20 +88,27 @@ class Post:
     comment_html: str
     comment_plain: str
     timestamp: int
-    attachment: Attachment | None
+    attachments: tuple
     references: tuple
     capcode: str
     spans: tuple[Span, ...]
+    site: str = "4chan"
+
+    @property
+    def attachment(self):
+        return self.attachments[0] if self.attachments else None
 
     @classmethod
-    def from_api(cls, board, d):
-        spans = parse_comment(d.get("com", ""))
+    def from_api(cls, board, d, site="4chan"):
+        thread_no = d.get("resto") or d["no"]
+        spans = parse_comment(d.get("com", ""), (board, thread_no))
         name = html.unescape(d.get("name") or "Anonymous")
         if d.get("trip"):
             name += " " + d["trip"]
-        return cls(d["no"], d.get("resto") or d["no"], name, html.unescape(d.get("sub", "")),
+        att = attachment_from_api(board, d)
+        return cls(d["no"], thread_no, name, html.unescape(d.get("sub", "")),
                    d.get("com", ""), plain_text(spans), d.get("time", 0),
-                   attachment_from_api(board, d), references(spans), d.get("capcode") or "", spans)
+                   (att,) if att else (), references(spans, board, thread_no), d.get("capcode") or "", spans, site)
 
 
 @dataclass
@@ -108,17 +117,18 @@ class Thread:
     number: int
     posts: list
     last_modified: str | None = None
+    site: str = "4chan"
 
     @classmethod
-    def from_api(cls, board, number, data, last_modified=None):
-        return cls(board, number, [Post.from_api(board, p) for p in data["posts"]], last_modified)
+    def from_api(cls, board, number, data, last_modified=None, site="4chan"):
+        return cls(board, number, [Post.from_api(board, p, site) for p in data["posts"]], last_modified, site)
 
     @property
     def replies(self): return max(0, len(self.posts) - 1)
 
     @property
     def images(self):
-        return sum(1 for p in self.posts if p.attachment and not p.attachment.deleted)
+        return sum(1 for p in self.posts for a in p.attachments if not a.deleted)
 
     @property
     def subject(self): return self.posts[0].subject if self.posts else ""
