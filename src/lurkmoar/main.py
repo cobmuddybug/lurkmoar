@@ -7,6 +7,7 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QHBoxLayout, QLineEdit, QMainWindow,
                                QStackedWidget, QVBoxLayout, QWidget)
 
+from .ui_catalog import CatalogView
 from .ui_media import open_url
 from .ui_misc import (Banner, BoardPicker, HelpDialog, Header, Sidebar, StatusLine, Welcome, ago)
 
@@ -46,6 +47,17 @@ class MainWindow(QMainWindow):
         self.welcome = Welcome()
         self.add_page("welcome", self.welcome)
         self.welcome.choose.connect(self.open_picker)
+        self.catalog = CatalogView(theme, cfg, repo, db)
+        self.add_page("catalog", self.catalog)
+        self.catalog.open_thread.connect(lambda b, n: self.open_thread(b, n))
+        self.catalog.refresh_requested.connect(self.refresh)
+        self.catalog.favourite_board.connect(self.toggle_board_favourite)
+        self.repo.catalog_ready.connect(self._on_catalog)
+        self.repo.thumbs_changed.connect(lambda: self._repaint.start())
+        self._repaint = QTimer(self)
+        self._repaint.setSingleShot(True)
+        self._repaint.setInterval(120)
+        self._repaint.timeout.connect(self._repaint_lists)
         self.header.toggle_rail.connect(self._toggle_rail)
         self.header.choose_board.connect(self.open_picker)
         self.header.refresh.connect(self.refresh)
@@ -136,6 +148,7 @@ class MainWindow(QMainWindow):
     def _toggle_fav(self, code):
         on = self.db.fav_toggle(code)
         self.sidebar.set_boards(self.db.fav_boards(), self.board)
+        self.catalog.set_favourite(self.board in self.db.fav_boards())
         if self._picker is not None:
             self._picker.set_favs(self.db.fav_boards())
         self.status.message(f"/{code}/ {'added to' if on else 'removed from'} favourites")
@@ -149,6 +162,63 @@ class MainWindow(QMainWindow):
     def show_help(self):
         self._help = HelpDialog(self)
         self._help.open()
+
+    def _repaint_lists(self):
+        for pg in self.pages.values():
+            lst = getattr(pg, "list", None)
+            if lst is not None and pg.isVisible():
+                lst.viewport().update()
+
+    def open_board(self, code):
+        code = code.lower()
+        if self.mode == "thread":
+            self._save_thread_state()
+        self.board = code
+        self.db.kv_set("last_board", code)
+        self.db.kv_set("last_view", "catalog")
+        self.banner.hide()
+        self.catalog.set_board(code, self.boards.get(code))
+        self.catalog.set_favourite(code in self.db.fav_boards())
+        self.sidebar.set_boards(self.db.fav_boards(), code)
+        cached, nav = self.repo.cached_catalog(code), self.db.nav_get(code)
+        if cached.data is not None:
+            self.catalog.show_threads(cached.data)
+            self.catalog.restore(nav.catalog_anchor, nav.thread_no)
+            self.fetched_at, self.cached_flag = cached.fetched_at, False
+        else:
+            self.catalog.show_loading(code)
+            self.fetched_at = None
+        self.show_mode("catalog")
+        self._refresh_catalog(announce=False)
+
+    def _refresh_catalog(self, announce=True):
+        if not self.board:
+            return
+        self.refreshing = True
+        if self.repo.request_catalog(self.board):
+            if announce:
+                self.status.message(f"Refreshing /{self.board}/…")
+        else:
+            self.status.message("Already refreshing…")
+
+    def _on_catalog(self, code, res):
+        self.refreshing = False
+        for pg in self.pages.values():
+            getattr(pg, "on_bookmarks_changed", lambda: None)()
+        if code != self.board:
+            return
+        new = self.catalog.show_threads(res.data) if res.data is not None else None
+        if self.mode != "catalog":
+            return
+        self.note_result(res, f"/{code}/ catalog", self._refresh_catalog)
+        if res.error is None and not res.from_cache:
+            if new is None:
+                msg = f"/{code}/ loaded · {len(res.data)} threads"
+            else:
+                msg = f"/{code}/ updated · " + (f"{new} new thread{'s' * (new != 1)}" if new else "no new threads")
+            self.status.message(msg + " · just now")
+        elif res.error is None:
+            self.status.message(f"/{code}/ is up to date")
 
     # ---- shared feedback
     def note_result(self, res, label, retry):
@@ -203,9 +273,8 @@ class MainWindow(QMainWindow):
         else:
             self.db.bookmark_add(b, n, ref["subject"], ref["replies"])
             self.status.message(f"Bookmarked · /{b}/ No.{n}")
-        p = self.page()
-        if hasattr(p, "set_bookmarked"):
-            p.set_bookmarked(self.db.bookmark_has(b, n))
+        for pg in self.pages.values():
+            getattr(pg, "on_bookmarks_changed", lambda: None)()
 
     # ---- keys
     def eventFilter(self, obj, ev):
