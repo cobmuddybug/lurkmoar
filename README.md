@@ -107,3 +107,7 @@ Design notes are in [`docs/design/`](docs/design/).
 LurkMoar is an independent read-only client. Content is sourced from the sites you open and belongs to them. Not
 affiliated with or endorsed by any of them. Some of the supported sites host adult or otherwise objectionable content;
 you choose which sites and boards to open, and individual sites can be hidden with `hidden_sites`.
+
+## License
+
+[MIT](LICENSE).

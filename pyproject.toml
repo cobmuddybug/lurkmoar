@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 keywords = ["imageboard", "4chan", "vichan", "pyside6", "qt", "omarchy", "reader"]
 classifiers = [
+    "License :: OSI Approved :: MIT License",
     "Environment :: X11 Applications :: Qt",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
