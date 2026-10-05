@@ -35,7 +35,8 @@ HINTS = {
     "bookmarks": "Esc back   R check for updates   ↑↓ navigate   Enter open   Delete remove   ? help",
 }
 ABOUT = ("LurkMoar is an independent read-only client.\n"
-         "Content sourced from 4chan. Not affiliated with or endorsed by 4chan.")
+         "Content is sourced from the sites you open and belongs to them. "
+         "Not affiliated with or endorsed by any of them.")
 
 
 def ago(seconds) -> str:
@@ -454,8 +455,7 @@ class HelpDialog(QDialog):
         rows = "".join(f"<tr><td><b>{k}</b>&nbsp;&nbsp;</td><td>{d}</td></tr>" for k, d in KEYS)
         v = QVBoxLayout(self)
         body = QLabel(f"<h3>Keyboard shortcuts</h3><table>{rows}</table><h3>About</h3>"
-                      f"<p>{ABOUT.replace(chr(10), '<br>')}</p>"
-                      "<p><a href='https://www.4chan.org'>4chan.org</a></p>")
+                      f"<p>{ABOUT.replace(chr(10), '<br>')}</p>")
         body.setTextFormat(Qt.RichText)
         body.setOpenExternalLinks(True)
         body.setWordWrap(True)

@@ -74,3 +74,19 @@ def test_banner_wording_on_error(qapp):
     assert "Couldn't reach the server" in win.banner.label.text() and not win.banner.isHidden()
     win.note_result(Result([1], 1.0, False), "/g/ catalog", lambda: None)
     assert win.banner.isHidden()
+
+
+def test_about_text_names_no_single_site():
+    from lurkmoar.ui_misc import ABOUT
+    assert ABOUT == ("LurkMoar is an independent read-only client.\n"
+                     "Content is sourced from the sites you open and belongs to them. "
+                     "Not affiliated with or endorsed by any of them.")
+
+
+def test_help_dialog_has_no_4chan_link(qapp):
+    from PySide6.QtWidgets import QLabel
+    win, *_ = make_window(qapp)
+    win.show_help()
+    text = " ".join(l.text() for l in win._help.findChildren(QLabel))
+    assert "4chan.org" not in text and "independent read-only client" in text
+    win._help.reject()
