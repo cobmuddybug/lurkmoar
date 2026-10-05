@@ -9,7 +9,7 @@ No posting, no captcha, no accounts: the network layer exposes `GET` and nothing
     lurkmoar
 
 Press `?` inside the app for shortcuts. `B` chooses a board, `/` filters the catalog, `Enter` opens,
-`Esc` goes back (and undoes quote jumps first). `←` moves focus to the board list on the left
+`Esc` or `Backspace` goes back (and undoes quote jumps first; Backspace still edits text in the filter box). `←` moves focus to the board list on the left
 (`↑`/`↓` to pick, `Enter` to open, `→` or `Esc` to return).
 In a thread, opening any image or video starts a gallery: `←`/`→` cycle through the thread's media (wrapping),
 `S` saves the file to `save_dir` (original name, never overwriting),

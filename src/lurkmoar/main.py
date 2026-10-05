@@ -460,7 +460,9 @@ class MainWindow(QMainWindow):
         k, mods, ch = ev.key(), ev.modifiers(), ev.text()
         focus = self.focusWidget() or QApplication.focusWidget()   # this window's own focus first (app-level can lag)
         page = self.page()
-        if k == Qt.Key_Escape:
+        if k == Qt.Key_Backspace and (mods or isinstance(focus, QLineEdit)):
+            return False                            # text editing, and Ctrl+Backspace, stay untouched
+        if k in (Qt.Key_Escape, Qt.Key_Backspace):  # Backspace does everything Esc does
             if self.sidebar.has_focus() and not (self.viewer is not None and self.viewer.isVisible()):
                 if page:
                     page.focus_list()

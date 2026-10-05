@@ -13,7 +13,7 @@ KEYS = [
     ("↑ ↓  or  K J", "Previous / next item"),
     ("PgUp PgDn Home End", "Scroll"),
     ("Enter", "Open selected thread; in a thread follow a quote or open media"),
-    ("Esc", "Back / close (undoes quote jumps first)"),
+    ("Esc  or  Backspace", "Back / close (undoes quote jumps first)"),
     ("M", "Open selected post's media"),
     ("← →", "Previous / next image or video in the thread (wraps around)"),
     ("S", "In the viewer: save the image or video to your download folder"),
@@ -302,6 +302,10 @@ class BoardPicker(QDialog):
         self.search.setFocus()
 
     def eventFilter(self, o, e):
+        if (o is self.search and e.type() == QEvent.KeyPress and e.key() == Qt.Key_Backspace
+                and not self.search.text() and not e.modifiers()):
+            self.reject()                           # nothing left to delete: Backspace backs out like Esc
+            return True
         if o is self.search and e.type() == QEvent.KeyPress and e.key() in (Qt.Key_Up, Qt.Key_Down):
             step = 1 if e.key() == Qt.Key_Down else -1
             self.list.setCurrentRow(max(0, min(self.list.count() - 1, self.list.currentRow() + step)))
@@ -365,6 +369,12 @@ class HelpDialog(QDialog):
         close.clicked.connect(self.accept)
         v.addWidget(body, 1)
         v.addWidget(close)
+
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key_Backspace and not e.modifiers():
+            self.reject()
+        else:
+            super().keyPressEvent(e)
 
 
 def bookmark_status(b, has_cache) -> str:
