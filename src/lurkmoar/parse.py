@@ -3,7 +3,7 @@ import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
 
-QUOTE_RE = re.compile(r"(?:/(\w+)/thread/(\d+))?#p(\d+)")
+QUOTE_RE = re.compile(r"(?:/(\w+)/(?:thread|res)/(\d+)(?:\.html)?)?#p?(\d+)")
 
 
 @dataclass(frozen=True)
@@ -46,17 +46,19 @@ class _Parser(HTMLParser):
         if tag in ("b", "strong"): s = {"b"}
         elif tag in ("i", "em"): s = {"i"}
         elif tag == "u": s = {"u"}
-        elif tag == "s": s = {"spoiler"}
+        elif tag in ("s", "strike"): s = {"spoiler"}
         elif tag in ("pre", "code"): s = {"code"}
         elif tag == "a":
             href = a.get("href") or ""
-            if "quotelink" in cls:
+            if "quotelink" in cls or (href[:1] in ("#", "/") and QUOTE_RE.fullmatch(href)):
                 s, t = {"quote"}, href
             elif href.startswith(("http://", "https://")):
                 s, t = {"link"}, href
         elif tag == "span":
             if "deadlink" in cls: s = {"quote"}
-            elif "quote" in cls: s = {"greentext"}
+            elif "spoiler" in cls: s = {"spoiler"}
+            elif "heading" in cls: s = {"b"}
+            elif "orangeQuote" in cls or "quote" in cls: s = {"greentext"}
         styles, target = self._cur()
         self.stack.append((tag, styles | frozenset(s), t or target))
 
@@ -74,7 +76,7 @@ class _Parser(HTMLParser):
             self._add(data)
 
 
-def parse_comment(html: str) -> tuple[Span, ...]:
+def parse_comment(html: str, ctx=None) -> tuple[Span, ...]:
     p = _Parser()
     p.feed(html or "")
     p.close()
@@ -92,11 +94,15 @@ def quote_target(href):
     return (m.group(1), int(m.group(2)) if m.group(2) else None, int(m.group(3)))
 
 
-def references(spans) -> tuple[int, ...]:
+def references(spans, board=None, thread=None) -> tuple[int, ...]:
     out: list[int] = []
     for s in spans:
         if "quote" in s.styles and s.target:
             q = quote_target(s.target)
-            if q and q[0] is None and q[2] not in out:
-                out.append(q[2])
+            if not q:
+                continue
+            qb, qt, qp = q
+            same = (qb is None) or (board is not None and qb == board and qt == thread)
+            if same and qp not in out:
+                out.append(qp)
     return tuple(out)
