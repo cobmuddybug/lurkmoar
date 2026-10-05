@@ -12,6 +12,7 @@ Press `?` inside the app for shortcuts. `B` chooses a board, `/` filters the cat
 `Esc` goes back (and undoes quote jumps first). `←` moves focus to the board list on the left
 (`↑`/`↓` to pick, `Enter` to open, `→` or `Esc` to return).
 In a thread, opening any image or video starts a gallery: `←`/`→` cycle through the thread's media (wrapping),
+`S` saves the file to `save_dir` (original name, never overwriting),
 `Space` pauses, `M` mutes, `[` `]` seek, `V` hands the video to mpv.
 
 ## Config
@@ -26,6 +27,7 @@ In a thread, opening any image or video starts a gallery: `←`/`→` cycle thro
 | font_size | 11 | body text size in pt |
 | thumb_size | 96 | thumbnail box in px |
 | reveal_spoilers | false | show spoilered images without clicking |
+| save_dir | "~/Downloads/LurkMoar" | where `S` in the viewer saves the current image or video |
 | video_command | "mpv" | external player, opened with `V` while a video is showing |
 | video_start_muted | true | videos in the viewer start muted (`M` toggles) |
 | auto_refresh | true | refresh the open thread |

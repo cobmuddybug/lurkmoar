@@ -1,6 +1,8 @@
 """External-open helpers and the in-app image viewer."""
 import shlex
+import shutil
 import subprocess
+from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QUrl, Signal
 from PySide6.QtGui import QColor, QPainter
@@ -148,6 +150,8 @@ class MediaViewer(QFrame):
         next_btn.clicked.connect(lambda: self.step(1))
         open_btn = QPushButton("Open original  O")
         open_btn.clicked.connect(self._open_original)
+        save_btn = QPushButton("Save  S")
+        save_btn.clicked.connect(self._save)
         copy_btn = QPushButton("Copy URL  C")
         copy_btn.clicked.connect(self._copy)
         close_btn = QPushButton("Close  Esc")
@@ -157,7 +161,7 @@ class MediaViewer(QFrame):
         h.addWidget(self.info)
         h.addWidget(self.vstatus)
         h.addWidget(self.hint, 1)
-        for b in (open_btn, copy_btn, close_btn):
+        for b in (save_btn, open_btn, copy_btn, close_btn):
             h.addWidget(b)
         v.addWidget(self.stack, 1)
         v.addWidget(bar)
@@ -188,9 +192,9 @@ class MediaViewer(QFrame):
         video = is_video(att.extension)
         counter = f"{self.index + 1} / {len(self.items)} · " if len(self.items) > 1 else ""
         self.info.setText(f"{counter}{att.width}×{att.height} · {att.extension[1:].upper()} · {_size(att.size)}")
-        self.hint.setText("Space pause   M mute   [ ] seek   V open in "
+        self.hint.setText("Space pause   M mute   [ ] seek   S save   V open in "
                           + (self.cfg.video_command.split() or ["mpv"])[0] + "   ← → next" if video else
-                          "+ / − zoom   0 fit   1 actual size   wheel zoom · drag pan   ← → previous / next")
+                          "+ / − zoom   0 fit   1 actual size   S save   ← → previous / next")
         self.stack.setCurrentWidget(self.canvas)
         self.canvas.set_note("Loading video…" if video else "Loading image…")
         self.repo.request_media(self.board, att)
@@ -253,6 +257,29 @@ class MediaViewer(QFrame):
             QApplication.clipboard().setText(self.att.original_url)
             self.message.emit(f"Copied {self.att.original_url}")
 
+    def _save(self):
+        att = self.att
+        if att is None:
+            return
+        src = self.repo.cached_media_path(self.board, att)
+        if src is None:
+            self.message.emit("Still downloading. Try again in a moment.")
+            return
+        # the API's filename is untrusted: keep only a plain name, never a path
+        stem = Path(att.filename.replace("\\", "/")).name.strip(". ") or str(att.id)
+        try:
+            folder = Path(self.cfg.save_dir).expanduser()
+            folder.mkdir(parents=True, exist_ok=True)
+            dest, n = folder / f"{stem}{att.extension}", 0
+            while dest.exists():
+                n += 1
+                dest = folder / f"{stem} ({n}){att.extension}"
+            shutil.copy2(src, dest)
+        except OSError as e:
+            self.message.emit(f"Couldn't save: {e.strerror or e}")
+            return
+        self.message.emit(f"Saved to {dest}")
+
     def _toggle_play(self):
         if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self.player.pause()
@@ -290,6 +317,7 @@ class MediaViewer(QFrame):
         elif not video and ch in ("-", "_"): self.canvas.zoom(0.8)
         elif not video and ch == "0": self.canvas.fit()
         elif not video and ch == "1": self.canvas.actual()
+        elif ch.lower() == "s": self._save()
         elif ch.lower() == "o": self._open_original()
         elif ch.lower() == "c": self._copy()
         return True

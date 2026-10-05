@@ -239,6 +239,11 @@ class Repo(QObject):
     def thumb_failed(self, board, att):
         return bool(att) and self.thumbs.failed(self._thumb_key(board, att))
 
+    def cached_media_path(self, board, att):
+        """The downloaded original, or None if it hasn't finished downloading."""
+        p = self.paths.media / f"{board}_{att.id}{att.extension}"
+        return p if p.is_file() else None
+
     def request_media(self, board, att):
         url, dest = att.original_url, self.paths.media / f"{board}_{att.id}{att.extension}"
 
