@@ -307,3 +307,117 @@ class HelpDialog(QDialog):
         close.clicked.connect(self.accept)
         v.addWidget(body, 1)
         v.addWidget(close)
+
+
+def bookmark_status(b, has_cache) -> str:
+    if b.expired:
+        return "Thread expired    " + ("cached copy available" if has_cache else "no cached copy")
+    latest = b.latest_replies or b.last_known_reply_count
+    if latest > b.last_known_reply_count:
+        return f"{b.last_known_reply_count} → {latest} replies    +{latest - b.last_known_reply_count} new"
+    return f"{latest} replies    unchanged"
+
+
+class BookmarksView(QWidget):
+    open_thread = Signal(str, int)
+
+    def __init__(self, db):
+        super().__init__()
+        self.db = db
+        v = QVBoxLayout(self)
+        v.setContentsMargins(10, 10, 10, 10)
+        row = QHBoxLayout()
+        title = QLabel("BOOKMARKS")
+        title.setObjectName("brand")
+        hint = QLabel("Saved on this computer only. Press R to check for new replies.")
+        hint.setObjectName("muted")
+        self.remove_btn = QPushButton("Remove bookmark   Del")
+        self.remove_btn.clicked.connect(lambda: self.key_action("delete"))
+        row.addWidget(title)
+        row.addWidget(hint, 1)
+        row.addWidget(self.remove_btn)
+        self.empty = QLabel("No bookmarks yet.\nPress F on a thread in the catalog or while reading it.")
+        self.empty.setAlignment(Qt.AlignCenter)
+        self.empty.setObjectName("muted")
+        self.list = QListWidget()
+        mono = QFont("monospace")
+        mono.setStyleHint(QFont.Monospace)
+        self.list.setFont(mono)
+        self.list.itemClicked.connect(lambda it: self._open(it))
+        v.addLayout(row)
+        v.addWidget(self.empty)
+        v.addWidget(self.list, 1)
+        self.reload()
+
+    def _add(self, text, data=None, header=False):
+        it = QListWidgetItem(text)
+        if header:
+            it.setFlags(Qt.NoItemFlags)
+        else:
+            it.setData(Qt.UserRole, data)
+        self.list.addItem(it)
+
+    def reload(self):
+        cur = self.list.currentItem().data(Qt.UserRole) if self.list.currentItem() else None
+        self.list.clear()
+        bms = self.db.bookmarks()
+        self.empty.setVisible(not bms)
+        for b in bms:
+            has = self.db.cache_get(f"thread:{b.board}:{b.thread_id}") is not None
+            self._add(f"/{b.board}/  {b.subject}\n      {bookmark_status(b, has)}",
+                      ("bm", b.board, b.thread_id))
+        marked = {(b.board, b.thread_id) for b in bms}
+        recent = [r for r in self.db.recent() if (r[0], r[1]) not in marked]
+        if recent:
+            self._add("RECENTLY VISITED", header=True)
+            for board, tid, subject in recent:
+                self._add(f"/{board}/  {subject}", ("recent", board, tid))
+        for i in range(self.list.count()):
+            if self.list.item(i).data(Qt.UserRole) == cur and cur is not None:
+                self.list.setCurrentRow(i)
+                return
+        for i in range(self.list.count()):
+            if self.list.item(i).data(Qt.UserRole):
+                self.list.setCurrentRow(i)
+                return
+
+    def on_bookmarks_changed(self):
+        self.reload()
+
+    def _selected(self):
+        it = self.list.currentItem()
+        return it.data(Qt.UserRole) if it else None
+
+    def _open(self, it):
+        d = it.data(Qt.UserRole)
+        if d:
+            self.open_thread.emit(d[1], d[2])
+
+    def focus_list(self):
+        self.list.setFocus()
+
+    def key_action(self, name):
+        d = self._selected()
+        if name == "open":
+            if d:
+                self.open_thread.emit(d[1], d[2])
+            return bool(d)
+        if name == "delete":
+            if d and d[0] == "bm":
+                self.db.bookmark_remove(d[1], d[2])
+                self.reload()
+            return bool(d)
+        if name in ("down", "up"):
+            from PySide6.QtGui import QKeyEvent
+            from PySide6.QtWidgets import QApplication
+            QApplication.sendEvent(self.list, QKeyEvent(QEvent.KeyPress,
+                                   Qt.Key_Down if name == "down" else Qt.Key_Up, Qt.NoModifier))
+            return True
+        return False
+
+    def current_ref(self):
+        d = self._selected()
+        if not d:
+            return None
+        return dict(board=d[1], number=d[2], subject="", replies=0,
+                    url=f"https://boards.4chan.org/{d[1]}/thread/{d[2]}")

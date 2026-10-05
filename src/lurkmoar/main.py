@@ -10,7 +10,8 @@ from PySide6.QtWidgets import (QAbstractButton, QApplication, QHBoxLayout, QLine
 from .ui_catalog import CatalogView
 from .ui_media import MediaViewer, is_video, open_url, play_video
 from .ui_thread import ThreadView
-from .ui_misc import (Banner, BoardPicker, HelpDialog, Header, Sidebar, StatusLine, Welcome, ago)
+from .ui_misc import (Banner, BoardPicker, BookmarksView, HelpDialog, Header, Sidebar, StatusLine,
+                      Welcome, ago)
 
 
 class MainWindow(QMainWindow):
@@ -75,6 +76,9 @@ class MainWindow(QMainWindow):
         self.viewer = MediaViewer(root, theme, cfg, repo)
         self.viewer.message.connect(self.status.message)
         self.thread.media_requested.connect(self.open_media)
+        self.bookmarks = BookmarksView(db)
+        self.add_page("bookmarks", self.bookmarks)
+        self.bookmarks.open_thread.connect(lambda b, n: self.open_thread(b, n))
         self.header.toggle_rail.connect(self._toggle_rail)
         self.header.choose_board.connect(self.open_picker)
         self.header.refresh.connect(self.refresh)
@@ -96,6 +100,7 @@ class MainWindow(QMainWindow):
         self._ticker.start(1000)
         self._restore_geometry()
         self.show_mode("welcome")
+        self._restore()
 
     # ---- pages and modes
     def add_page(self, mode, widget):
@@ -239,6 +244,34 @@ class MainWindow(QMainWindow):
             self.status.message(msg + " · just now")
         elif res.error is None:
             self.status.message(f"/{code}/ is up to date")
+
+    def show_bookmarks(self):
+        self.bookmarks.reload()
+        self.banner.hide()
+        self.show_mode("bookmarks")
+
+    def _refresh_bookmarks(self):
+        boards = sorted({b.board for b in self.db.bookmarks()})
+        if not boards:
+            self.status.message("No bookmarks yet. Press F on a thread.")
+            return
+        self.status.message("Checking bookmarks…")
+        for b in boards:
+            self.repo.request_catalog(b)
+
+    def _restore(self):
+        last = self.db.kv_get("last_board")
+        if not last or not self.cfg.start_on_last_board:
+            return
+        view = self.db.kv_get("last_view", "")      # read first: open_board resets it to "catalog"
+        self.open_board(last)
+        if self.cfg.restore_thread and view.startswith("thread:"):
+            try:
+                _, b, n = view.split(":")
+                if b == last:
+                    self.open_thread(b, int(n))
+            except ValueError:
+                pass
 
     def open_media(self, board, att):
         if is_video(att.extension):
