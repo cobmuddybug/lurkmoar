@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, 
 
 KEYS = [
     ("B", "Choose board"),
+    ("←", "Move to the board list (↑↓ choose, Enter open, → or Esc back)"),
     ("/", "Filter catalog"),
     ("S", "Cycle catalog sort"),
     ("R", "Refresh (on Bookmarks: check for updates)"),
@@ -110,13 +111,67 @@ class Sidebar(QFrame):
         title.setObjectName("muted")
         self.list = QListWidget()
         self.list.itemClicked.connect(lambda it: self.board_chosen.emit(it.data(Qt.UserRole)))
-        all_btn = QPushButton("All boards…   B")
-        all_btn.clicked.connect(self.all_boards)
-        bm = QPushButton("★ Bookmarks")
-        bm.clicked.connect(self.bookmarks)
-        for w in (title, self.list, all_btn, bm):
+        self.all_btn = QPushButton("All boards…   B")
+        self.all_btn.clicked.connect(self.all_boards)
+        self.bm_btn = QPushButton("★ Bookmarks")
+        self.bm_btn.clicked.connect(self.bookmarks)
+        for w in (title, self.list, self.all_btn, self.bm_btn):
             v.addWidget(w)
         v.setStretch(1, 1)
+
+    def _focused(self):
+        # the window's focus widget: same as hasFocus() in a live session, and also right when the window is inactive
+        fw = self.window().focusWidget()
+        return fw if fw in (self.list, self.all_btn, self.bm_btn) else None
+
+    def has_focus(self):
+        return self._focused() is not None
+
+    def enter(self):
+        """Move keyboard focus into the rail with the current board highlighted."""
+        if self.list.count() and self.list.currentRow() < 0:
+            self.list.setCurrentRow(0)
+        self.list.setFocus()
+
+    def nav(self, key):
+        """Up/Down walk list -> All boards -> Bookmarks; returns True when the key was consumed here."""
+        chain = (self.list, self.all_btn, self.bm_btn)
+        cur = next((i for i, w in enumerate(chain) if w is self._focused()), 0)
+        if cur == 0:
+            row, last = self.list.currentRow(), self.list.count() - 1
+            if key == Qt.Key_Down:
+                if row >= last:
+                    self.all_btn.setFocus()
+                else:
+                    self.list.setCurrentRow(row + 1)
+                return True
+            if key == Qt.Key_Up:
+                if row > 0:                              # top of the list: nothing above, stay put
+                    self.list.setCurrentRow(row - 1)
+                return True
+            return False
+        if key == Qt.Key_Down:
+            chain[min(cur + 1, 2)].setFocus()
+            return True
+        if key == Qt.Key_Up:
+            chain[cur - 1].setFocus()
+            if cur == 1:
+                self.list.setCurrentRow(self.list.count() - 1)
+            return True
+        return False
+
+    def activate(self):
+        """Enter on the focused widget: choose the board, or press the focused button."""
+        fw = self._focused()
+        if fw is self.list:
+            self.choose_current()
+        elif fw is not None:
+            fw.click()
+
+    def choose_current(self):
+        it = self.list.currentItem()
+        if it:
+            self.board_chosen.emit(it.data(Qt.UserRole))
 
     def set_boards(self, favs, current):
         self.list.clear()

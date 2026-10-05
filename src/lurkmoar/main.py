@@ -84,7 +84,7 @@ class MainWindow(QMainWindow):
         self.header.choose_board.connect(self.open_picker)
         self.header.refresh.connect(self.refresh)
         self.header.help.connect(self.show_help)
-        self.sidebar.board_chosen.connect(lambda c: self.open_board(c))
+        self.sidebar.board_chosen.connect(self._rail_chose)
         self.sidebar.all_boards.connect(self.open_picker)
         self.sidebar.bookmarks.connect(lambda: self.show_bookmarks())
 
@@ -170,6 +170,10 @@ class MainWindow(QMainWindow):
         p.favourite_toggled.connect(self._toggle_fav)
         self._picker = p
         p.open()
+
+    def _rail_chose(self, code):
+        self.open_board(code)
+        self.page().focus_list()
 
     def _toggle_fav(self, code):
         on = self.db.fav_toggle(code)
@@ -454,9 +458,13 @@ class MainWindow(QMainWindow):
 
     def _on_key(self, ev):
         k, mods, ch = ev.key(), ev.modifiers(), ev.text()
-        focus = QApplication.focusWidget()
+        focus = self.focusWidget() or QApplication.focusWidget()   # this window's own focus first (app-level can lag)
         page = self.page()
         if k == Qt.Key_Escape:
+            if self.sidebar.has_focus() and not (self.viewer is not None and self.viewer.isVisible()):
+                if page:
+                    page.focus_list()
+                return True
             return self.back()
         if isinstance(focus, QLineEdit):
             if k in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Down) and page:
@@ -467,6 +475,21 @@ class MainWindow(QMainWindow):
             return False
         if self.viewer is not None and self.viewer.isVisible():
             return self.viewer.key(k, ch)
+        if self.sidebar.has_focus():
+            if k == Qt.Key_Right:
+                if page:
+                    page.focus_list()
+                return True
+            if k == Qt.Key_Left:
+                return True
+            if k in (Qt.Key_Up, Qt.Key_Down):
+                return self.sidebar.nav(k)
+            if k in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+                self.sidebar.activate()
+                return True
+        elif k == Qt.Key_Left and self.mode != "welcome":
+            self._focus_rail()
+            return True
         if isinstance(focus, QAbstractButton) and k in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
             return False
         for key, name in ((Qt.Key_Return, "open"), (Qt.Key_Enter, "open"),
@@ -490,6 +513,14 @@ class MainWindow(QMainWindow):
         self.sidebar.setVisible(self._rail_wanted and self.width() >= 760)
         if self.viewer is not None:
             self.viewer.setGeometry(self.centralWidget().rect())
+
+    def _focus_rail(self):
+        self._rail_wanted = True
+        self.sidebar.setVisible(True)
+        if not self.sidebar.isVisible():
+            self.status.message("Window too narrow for the board list")
+            return
+        self.sidebar.enter()
 
     def _toggle_rail(self):
         self._rail_wanted = not self._rail_wanted
