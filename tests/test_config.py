@@ -30,3 +30,13 @@ def test_refresh_floor():
     p = paths()
     p.config_file.write_text('{"refresh_seconds": 1}')
     assert load_config(p).refresh_seconds == 10
+
+
+def test_site_config_fields():
+    p = paths()
+    p.config_file.write_text('{"extra_boards": {"kissu": ["qa"]}, "hidden_sites": ["wizchan"]}')
+    cfg = load_config(p)
+    assert cfg.extra_boards == {"kissu": ["qa"]} and cfg.hidden_sites == ["wizchan"]
+    p.config_file.write_text('{"extra_boards": ["wrong type"], "hidden_sites": "nope"}')
+    cfg = load_config(p)
+    assert cfg.extra_boards == {} and cfg.hidden_sites == []

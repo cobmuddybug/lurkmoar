@@ -1,7 +1,7 @@
 """Paths and the small user config. LURKMOAR_HOME redirects everything (tests)."""
 import json
 import os
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 
@@ -49,6 +49,8 @@ class Config:
     video_command: str = "mpv"
     video_start_muted: bool = True
     save_dir: str = "~/Downloads/LurkMoar"
+    extra_boards: dict = field(default_factory=dict)
+    hidden_sites: list = field(default_factory=list)
     auto_refresh: bool = True
     refresh_seconds: int = 30
 

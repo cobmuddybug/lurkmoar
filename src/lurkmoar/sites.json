@@ -1,0 +1,14 @@
+{"sites": [
+  {"id": "kissu", "name": "Kissu", "base": "https://kissu.moe", "family": "vichan", "order": 10,
+   "thread_url": "{base}/{board}/res/{no}#{post}", "boards": ["b", "jp"]},
+  {"id": "lainchan", "name": "Lainchan", "base": "https://lainchan.org", "family": "vichan", "order": 20,
+   "boards": ["sec", "inter", "lit", "music", "vis", "hum", "drug", "zzz", "layer", "q", "r", "culture", "psy", "mega", "random", "zine"]},
+  {"id": "leftypol", "name": "Leftypol", "base": "https://leftypol.org", "family": "vichan-files", "order": 30,
+   "boards": ["overboard", "sfw", "alt", "leftypol", "edu", "labor", "siberia", "lgbt", "latam", "hobby", "tech", "games", "anime", "music", "draw", "ufo", "420", "meta"]},
+  {"id": "sushichan", "name": "Sushichan", "base": "https://sushigirl.us", "family": "vichan", "order": 40,
+   "boards": ["lounge", "yakuza", "arcade", "kawaii", "kitchen", "tunes", "culture", "silicon", "otaku", "hell", "chat"]},
+  {"id": "uboachan", "name": "Uboachan", "base": "https://uboachan.net", "family": "vichan", "order": 50,
+   "boards": ["yn", "yndd", "ot", "n", "o"]},
+  {"id": "wizchan", "name": "Wizchan", "base": "https://wizchan.org", "family": "vichan", "order": 60,
+   "boards": ["wiz", "dep", "hob", "lounge", "jp", "meta", "games", "music", "all"]}
+]}
