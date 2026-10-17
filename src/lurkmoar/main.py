@@ -13,7 +13,7 @@ from .ui_catalog import CatalogView
 from .ui_media import MediaViewer, open_url
 from .ui_thread import ThreadView
 from .ui_misc import (Banner, BoardPicker, BookmarksView, HelpDialog, Header, Sidebar, StatusLine,
-                      Welcome, ago)
+                      ThemePicker, Welcome, ago)
 
 
 class MainWindow(QMainWindow):
@@ -27,7 +27,7 @@ class MainWindow(QMainWindow):
         self.viewer = None
         self.fetched_at = None
         self.cached_flag = self.refreshing = False
-        self._picker = self._help = None
+        self._picker = self._help = self._theme_picker = None
         self._rail_wanted = True
         self.setWindowTitle("LurkMoar")
         self.resize(1100, 760)
@@ -216,10 +216,11 @@ class MainWindow(QMainWindow):
         self._help = HelpDialog(self)
         self._help.open()
 
-    # ---- live theme: follow Omarchy or DMS when the theme changes
+    # ---- theme: a built-in, your own file, or auto (follow Omarchy or DMS live)
     def _start_theme_watch(self, theme_path):
-        from .theme import default_source
-        self.theme_path = Path(theme_path or default_source())
+        from .theme import default_source, resolve
+        self._auto_path = Path(theme_path or default_source())
+        self.theme_path = resolve(self.cfg.theme, self.paths.themes, self._auto_path)[1]   # None: nothing to follow
         self._theme_timer = QTimer(self)
         self._theme_timer.setSingleShot(True)
         self._theme_timer.setInterval(300)           # one theme switch fires many file events; settle first
@@ -235,7 +236,10 @@ class MainWindow(QMainWindow):
         stale = w.directories() + w.files()
         if stale:
             w.removePaths(stale)
-        if self.theme_path.suffix == ".json":        # DMS rewrites one file in place; watch it and its directory
+        if self.theme_path is None:                  # a built-in theme never changes
+            paths = []
+        elif self.theme_path.suffix == ".json" or self.theme_path.parent == self.paths.themes:
+            # DMS and your own theme files change in place (or by an editor's rename): watch the file and its folder
             paths = [str(p) for p in (self.theme_path.parent, self.theme_path) if p.exists()]
         else:
             current = self.theme_path.parent.parent
@@ -249,12 +253,45 @@ class MainWindow(QMainWindow):
     def _reload_theme(self):
         from .theme import read_theme
         self._rewatch_theme()
+        if self.theme_path is None:
+            return
         new = read_theme(self.theme_path)
         if new is None or new == self.theme:         # mid-swap (file missing), unreadable, or nothing changed
             return
         self.apply_theme(new)
 
-    def apply_theme(self, theme):
+    def open_theme_picker(self):
+        from .theme import choices, resolve
+        if self._theme_picker is not None and self._theme_picker.isVisible():
+            return
+        options = [(tid, label, kind, resolve(tid, self.paths.themes, self._auto_path)[0])
+                   for tid, label, kind in choices(self.paths.themes)]
+        before = self.cfg.theme
+        p = ThemePicker(self, options, before, self.paths.themes)
+        p.previewed.connect(lambda tid: self.set_theme_choice(tid, persist=False))
+        p.chosen.connect(lambda tid: self.set_theme_choice(tid, persist=True))
+        p.rejected.connect(lambda: self.set_theme_choice(before, persist=False))
+        self._theme_picker = p
+        p.open()
+
+    def set_theme_choice(self, choice, persist=True):
+        from .config import save_setting
+        from .theme import resolve
+        theme, self.theme_path = resolve(choice, self.paths.themes, self._auto_path)
+        self._rewatch_theme()
+        if theme != self.theme:
+            self.apply_theme(theme, announce=False)
+        if not persist:
+            return
+        self.cfg.theme = choice
+        try:
+            save_setting(self.paths, "theme", choice)
+        except OSError as e:
+            self.status.message(f"Theme applied, but couldn't save it: {e.strerror or e}")
+            return
+        self.status.message("Theme: following Omarchy / DMS" if choice == "auto" else f"Theme saved · {choice}")
+
+    def apply_theme(self, theme, announce=True):
         from .theme import stylesheet
         self.theme = theme
         QApplication.instance().setStyleSheet(stylesheet(theme, self.cfg.font_size))
@@ -262,7 +299,8 @@ class MainWindow(QMainWindow):
         self.thread.set_theme(theme)
         self.viewer.set_theme(theme)
         self._repaint_lists()
-        self.status.message("Theme updated")
+        if announce:
+            self.status.message("Theme updated")
 
     def _repaint_lists(self):
         for pg in self.pages.values():
@@ -583,7 +621,7 @@ class MainWindow(QMainWindow):
                 return bool(page and page.key_action(name))
         simple = {"b": self.open_picker, "r": self.refresh, "?": self.show_help,
                   "o": self.open_in_browser, "c": self.copy_url, "f": self.toggle_bookmark,
-                  "F": self.toggle_board_favourite}
+                  "F": self.toggle_board_favourite, "t": self.open_theme_picker}
         if ch in simple:
             simple[ch]()
             return True
@@ -631,7 +669,7 @@ def main():
     from .db import DB
     from .repo import Repo, evict
     from .sites import load_sites
-    from .theme import load_theme, stylesheet
+    from .theme import resolve, stylesheet
 
     app = QApplication(sys.argv)
     app.setApplicationName("LurkMoar")
@@ -639,7 +677,7 @@ def main():
     app.setWindowIcon(QIcon.fromTheme("lurkmoar"))
     p = paths()
     cfg = load_config(p)
-    theme = load_theme()
+    theme = resolve(cfg.theme, p.themes)[0]
     app.setStyleSheet(stylesheet(theme, cfg.font_size))
     evict([p.thumbs, p.media], cfg.cache_mb * 1024 * 1024)
     sites = load_sites(cfg.extra_boards, cfg.hidden_sites)

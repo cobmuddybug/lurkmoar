@@ -1,6 +1,8 @@
-"""Small shared widgets: header, rail, banner, status line, picker, help."""
+"""Small shared widgets: header, rail, banner, status line, pickers, help."""
+from pathlib import Path
+
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QPushButton, QToolButton, QVBoxLayout, QWidget)
 
@@ -26,6 +28,7 @@ KEYS = [
     ("O", "Open page in browser"),
     ("C", "Copy URL"),
     ("Delete", "Remove selected bookmark"),
+    ("T", "Choose a colour theme (built-in, your own, or follow Omarchy / DMS)"),
     ("?", "This help"),
 ]
 HINTS = {
@@ -445,6 +448,110 @@ class BoardPicker(QDialog):
         cur = self._current()
         if cur:
             self.favourite_toggled.emit(*cur)
+
+
+def swatch(theme) -> QIcon:
+    """Background, surface, accent and text side by side: enough to tell themes apart in a list."""
+    pm = QPixmap(48, 16)
+    pm.fill(QColor(theme.background))
+    p = QPainter(pm)
+    for i, c in enumerate((theme.background, theme.surface_hover, theme.accent, theme.foreground)):
+        p.fillRect(i * 12, 0, 12, 16, QColor(c))
+    p.setPen(QColor(theme.border))
+    p.drawRect(0, 0, 47, 15)
+    p.end()
+    return QIcon(pm)
+
+
+class ThemePicker(QDialog):
+    """Moving through the list previews each theme on the whole app; Enter keeps it, Esc puts back the old one."""
+    previewed = Signal(str)
+    chosen = Signal(str)
+
+    def __init__(self, parent, options, current, themes_dir):
+        super().__init__(parent)
+        self.setWindowTitle("Theme")
+        self.resize(440, 600)
+        self.themes_dir = themes_dir
+        v = QVBoxLayout(self)
+        v.addWidget(QLabel("Theme"))
+        self.list = QListWidget()
+        self.list.setIconSize(QPixmap(48, 16).size())
+        bold = QFont(self.list.font())
+        bold.setBold(True)
+        heads = {"auto": "Automatic", "preset": "Built-in", "custom": "Your themes"}
+        last = None
+        for tid, label, kind, theme in options:
+            if kind != last:
+                head = QListWidgetItem(f"── {heads[kind]}")
+                head.setFlags(Qt.NoItemFlags)
+                head.setFont(bold)
+                self.list.addItem(head)
+                last = kind
+            it = QListWidgetItem(swatch(theme), f" {label}")
+            it.setData(Qt.UserRole, tid)
+            self.list.addItem(it)
+            if tid == current:
+                self.list.setCurrentItem(it)
+        if not any(k == "custom" for _, _, k, _ in options):
+            note = QListWidgetItem("   None yet. See below.")
+            note.setFlags(Qt.NoItemFlags)
+            self.list.addItem(note)
+        if self.list.currentItem():
+            self.list.scrollToItem(self.list.currentItem())
+        self.list.currentItemChanged.connect(self._moved)
+        self.list.itemActivated.connect(lambda it: self._accept())
+        how = QLabel(f"Make your own: save a .toml file in {self._short(themes_dir)} with\n"
+                     'background = "#…"   foreground = "#…"   accent = "#…"   error = "#…" (optional).\n'
+                     "An Omarchy colors.toml works as is. Edits show up live.")
+        how.setObjectName("muted")
+        how.setWordWrap(True)
+        folder = QPushButton("Open themes folder")
+        folder.clicked.connect(self._open_folder)
+        hint = QLabel("Enter Keep    Esc Cancel")
+        hint.setObjectName("muted")
+        row = QHBoxLayout()
+        row.addWidget(folder)
+        row.addStretch(1)
+        row.addWidget(hint)
+        v.addWidget(self.list, 1)
+        v.addWidget(how)
+        v.addLayout(row)
+        self.list.setFocus()
+
+    @staticmethod
+    def _short(path):
+        home = str(Path.home())
+        return str(path).replace(home, "~", 1) if str(path).startswith(home) else str(path)
+
+    def current(self):
+        it = self.list.currentItem()
+        return it.data(Qt.UserRole) if it else None
+
+    def _moved(self, it, _prev):
+        if it is not None and it.data(Qt.UserRole):
+            self.previewed.emit(it.data(Qt.UserRole))
+
+    def _accept(self):
+        if self.current():
+            self.chosen.emit(self.current())
+            self.accept()
+
+    def _open_folder(self):
+        from .ui_media import open_url
+        try:
+            self.themes_dir.mkdir(parents=True, exist_ok=True)
+            open_url(str(self.themes_dir))
+        except OSError:
+            pass
+
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self._accept()
+        elif e.key() == Qt.Key_Backspace and not e.modifiers():
+            self.reject()
+        else:
+            super().keyPressEvent(e)
 
 
 class HelpDialog(QDialog):

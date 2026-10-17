@@ -15,7 +15,8 @@ There is no posting, no captcha and no account: the network layer exposes `GET` 
 - **Bookmarks and recents** with "N → M replies" tracking and an explanation when a thread has expired, plus
   everything restored on relaunch (board, thread, scroll position).
 - **Works offline-ish.** Everything is cached; when the network is down you get the cached copy and a clear banner.
-- **Follows your Omarchy theme live**: change the theme and LurkMoar restyles itself without a restart.
+- **Themes.** Follows your Omarchy (or DankMaterialShell) theme live by default, or pick one of seven built-in
+  themes or your own with `T`. The picker previews as you move through it.
 - Polite by design: per-site request spacing, `If-Modified-Since`, no refetching within 10 s, bounded retries.
 
 ## Supported sites
@@ -66,6 +67,7 @@ Press `?` in the app for the full list. The essentials:
 | `Space` `M` `[` `]` `V` (video) | Pause · mute · seek 5 s · open in mpv |
 | `F` · `Shift+F` | Bookmark the thread · favourite the board |
 | `O` · `C` | Open the page in a browser · copy its URL |
+| `T` | Choose a theme (previews live; `Enter` keeps it, `Esc` restores the old one) |
 
 ## Configuration
 
@@ -85,9 +87,23 @@ Press `?` in the app for the full list. The essentials:
 | `save_dir` | `"~/Downloads/LurkMoar"` | Where `S` saves files (non-4chan sites get a subfolder) |
 | `extra_boards` | `{}` | Extra board codes per site, e.g. `{"kissu": ["qa"]}` |
 | `hidden_sites` | `[]` | Site ids to leave out of the rail and picker |
+| `theme` | `"auto"` | `"auto"`, a built-in (`tokyo-night`, `catppuccin-mocha`, `gruvbox-dark`, `nord`, `rose-pine`, `catppuccin-latte`, `solarized-light`) or the name of your own theme file. `T` sets this for you |
 
-Data: cache in `~/.cache/lurkmoar/`, bookmarks and state in `~/.local/share/lurkmoar/lurkmoar.db`. Colours come from the
-current Omarchy theme (`~/.local/state/omarchy/current/theme/colors.toml`) and fall back to a built-in palette.
+**Your own theme.** Save a `.toml` file in `~/.config/lurkmoar/themes/` (the picker's *Open themes folder* button
+creates it) and it appears under *Your themes*, named after the file:
+
+    # ~/.config/lurkmoar/themes/midnight.toml
+    background = "#101418"
+    foreground = "#e0e6ee"
+    accent     = "#ff8a3d"
+    error      = "#ff5c5c"   # optional
+
+Every other colour (surfaces, borders, muted text, selection) is derived from these. An Omarchy `colors.toml` works
+as is, so you can copy one in. While a theme file is in use, saving it restyles LurkMoar immediately.
+
+Data: cache in `~/.cache/lurkmoar/`, bookmarks and state in `~/.local/share/lurkmoar/lurkmoar.db`. With `theme` set to
+`"auto"`, colours come from the current Omarchy theme (`~/.local/state/omarchy/current/theme/colors.toml`) or, without
+Omarchy, DankMaterialShell's `~/.cache/DankMaterialShell/dms-colors.json`, and fall back to a built-in palette.
 
 ## Development
 

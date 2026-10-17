@@ -36,16 +36,33 @@ class Theme:
     border: str
 
 
+def is_light(colour) -> bool:
+    r, g, b = _rgb(colour)
+    return 0.299 * r + 0.587 * g + 0.114 * b > 140
+
+
 def derive(bg, fg, accent, error="#f7768e") -> Theme:
     return Theme(
         background=bg, surface=mix(bg, fg, .05), surface_hover=mix(bg, fg, .09),
         surface_selected=mix(bg, accent, .25), foreground=fg,
         foreground_muted=mix(bg, fg, .6), accent=accent, accent_muted=mix(bg, accent, .5),
-        quote="#789922", link=accent, warning="#e0af68", error=error,
+        quote="#789922", link=accent, warning="#9a6700" if is_light(bg) else "#e0af68", error=error,
         new_post=accent, spoiler=mix(bg, fg, .3), border=mix(bg, fg, .16))
 
 
 DEFAULT = derive("#0f1115", "#e6e6e6", "#7aa2f7")
+
+AUTO = "auto"
+# Built-in palettes: id -> (name, background, foreground, accent, error). Every other role is derived.
+PRESETS = {
+    "tokyo-night": ("Tokyo Night", "#1a1b26", "#c0caf5", "#7aa2f7", "#f7768e"),
+    "catppuccin-mocha": ("Catppuccin Mocha", "#1e1e2e", "#cdd6f4", "#cba6f7", "#f38ba8"),
+    "gruvbox-dark": ("Gruvbox Dark", "#282828", "#ebdbb2", "#fe8019", "#fb4934"),
+    "nord": ("Nord", "#2e3440", "#e5e9f0", "#88c0d0", "#bf616a"),
+    "rose-pine": ("Rosé Pine", "#191724", "#e0def4", "#c4a7e7", "#eb6f92"),
+    "catppuccin-latte": ("Catppuccin Latte", "#eff1f5", "#4c4f69", "#8839ef", "#d20f39"),
+    "solarized-light": ("Solarized Light", "#fdf6e3", "#586e75", "#268bd2", "#dc322f"),
+}
 
 
 def default_source() -> Path:
@@ -90,11 +107,40 @@ def read_theme(path=None) -> "Theme | None":
         return v.lower() if isinstance(v, str) and HEX.fullmatch(v) else default
 
     return derive(pick("background", DEFAULT.background), pick("foreground", DEFAULT.foreground),
-                  pick("accent", DEFAULT.accent), pick("color1", "#f7768e"))
+                  pick("accent", DEFAULT.accent), pick("error", pick("color1", "#f7768e")))
 
 
 def load_theme(path=None) -> Theme:
     return read_theme(path) or DEFAULT
+
+
+def custom_themes(themes_dir) -> dict:
+    """Your own themes: every *.toml in the themes folder, by file stem (Omarchy colors.toml format)."""
+    try:
+        files = sorted(Path(themes_dir).glob("*.toml"), key=lambda f: f.stem.lower())
+    except OSError:
+        return {}
+    return {f.stem: f for f in files if f.is_file() and f.stem != AUTO and f.stem not in PRESETS}
+
+
+def choices(themes_dir) -> list:
+    """(id, label, kind) for every selectable theme, in picker order."""
+    return ([(AUTO, "Auto (follow Omarchy / DMS)", "auto")]
+            + [(k, v[0], "preset") for k, v in PRESETS.items()]
+            + [(k, k, "custom") for k in custom_themes(themes_dir)])
+
+
+def resolve(choice, themes_dir, auto_path=None) -> "tuple[Theme, Path | None]":
+    """The theme for a config choice, and the file to watch for live changes (None for a built-in).
+    An unknown choice, such as a deleted custom file, falls back to auto."""
+    if choice in PRESETS:
+        _, bg, fg, accent, error = PRESETS[choice]
+        return derive(bg, fg, accent, error), None
+    custom = custom_themes(themes_dir).get(choice)
+    if custom is not None:
+        return load_theme(custom), custom
+    path = Path(auto_path or default_source())
+    return load_theme(path), path
 
 
 def stylesheet(t: Theme, pt: int) -> str:

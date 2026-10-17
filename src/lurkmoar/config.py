@@ -19,6 +19,8 @@ class Paths:
     def config_file(self): return self.config / "config.json"
     @property
     def db_file(self): return self.share / "lurkmoar.db"
+    @property
+    def themes(self): return self.config / "themes"
 
 
 def paths() -> Paths:
@@ -53,6 +55,7 @@ class Config:
     hidden_sites: list = field(default_factory=list)
     auto_refresh: bool = True
     refresh_seconds: int = 30
+    theme: str = "auto"
 
 
 def load_config(p: Paths) -> Config:
@@ -70,3 +73,17 @@ def load_config(p: Paths) -> Config:
     if not p.config_file.exists():
         p.config_file.write_text(json.dumps(asdict(cfg), indent=2) + "\n")
     return cfg
+
+
+def save_setting(p: Paths, name, value):
+    """Change one key in config.json, keeping everything else the user wrote there (unknown keys included)."""
+    try:
+        raw = json.loads(p.config_file.read_text())
+    except (OSError, ValueError):
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    raw[name] = value
+    tmp = p.config_file.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(raw, indent=2) + "\n")
+    tmp.replace(p.config_file)
