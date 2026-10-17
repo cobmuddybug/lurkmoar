@@ -89,6 +89,8 @@ class Core:
                           lambda d: ad.parse_catalog(s, board, d))
         if res.data is not None and not offline and res.error is None:
             self.db.bookmarks_observe(site, board, {t.number: t.replies for t in res.data if t.board == board})
+            if not res.from_cache:
+                self.db.prune_catalogs()
         return res
 
     def thread(self, site, board, no, offline=False):
@@ -129,8 +131,10 @@ def evict(dirs, max_bytes):
 class ThumbLoader:
     """Newest-first thumbnail fetch+decode off the GUI thread. Old requests fall off a bounded queue."""
 
-    def __init__(self, client_for, directory, on_change, workers=4, cap=64, keep=400):
+    def __init__(self, client_for, directory, on_change, workers=4, cap=64, keep=400, on_written=None):
         self.client_for, self.dir, self.on_change = client_for, Path(directory), on_change
+        self.on_written = on_written or (lambda n: None)
+        self._paused = False
         self._winner: dict = {}
         self._cap, self._keep = cap, keep
         self._q: deque = deque()
@@ -162,6 +166,12 @@ class ThumbLoader:
             self._cv.notify()
         return None
 
+    def pause(self, on):
+        """While paused (the media viewer covers the lists) workers leave the host free for the original."""
+        with self._cv:
+            self._paused = on
+            self._cv.notify_all()
+
     def _ordered(self, urls, group):
         ext = self._winner.get(group)
         if not ext:
@@ -186,6 +196,7 @@ class ThumbLoader:
             tmp = dest.with_suffix(dest.suffix + ".tmp")
             tmp.write_bytes(body)
             tmp.replace(dest)
+            self.on_written(len(body))
             if group:
                 self._winner[group] = Path(u).suffix
             return img
@@ -197,7 +208,7 @@ class ThumbLoader:
     def _run(self):
         while True:
             with self._cv:
-                while not self._q:
+                while not self._q or self._paused:
                     self._cv.wait()
                 key, urls, group, site = self._q.pop()
                 self._queued.discard(key)
@@ -222,6 +233,7 @@ class Repo(QObject):
     catalog_ready = Signal(str, str, object)
     thread_ready = Signal(str, str, int, object)
     media_ready = Signal(str, object, str)
+    media_progress = Signal(str, object, object)     # url, bytes done, total (None if unknown); ints can exceed 32 bits
     thumbs_changed = Signal()
 
     def __init__(self, db, api_client, cdn_client, paths, cfg, now=time.time, sites=None):
@@ -234,7 +246,24 @@ class Repo(QObject):
         self._media_pool = ThreadPoolExecutor(2)
         self._inflight: set = set()
         self._lock = threading.Lock()
-        self.thumbs = ThumbLoader(self._cdn_for, paths.thumbs, self.thumbs_changed.emit)
+        self._written, self._evicting = 0, threading.Lock()
+        self.thumbs = ThumbLoader(self._cdn_for, paths.thumbs, self.thumbs_changed.emit, on_written=self.note_written)
+
+    def note_written(self, n):
+        """Keep the cache under cache_mb during a session too, not only at startup. Runs on the writing worker."""
+        cap = self.cfg.cache_mb * 1024 * 1024
+        with self._lock:
+            self._written += n
+            if self._written < max(16 * 1024 * 1024, cap // 20):
+                return
+            self._written = 0
+        if self._evicting.acquire(blocking=False):
+            try:
+                evict([self.paths.thumbs, self.paths.media], cap)
+            except OSError:
+                pass
+            finally:
+                self._evicting.release()
 
     def _submit(self, pool, key, fn, done):
         with self._lock:
@@ -297,16 +326,26 @@ class Repo(QObject):
 
     def request_media(self, site, board, att):
         url, dest = att.original_url, self._media_path(site, board, att)
+        last = [0.0]
+
+        def progress(done, total):
+            now = time.monotonic()
+            if now - last[0] >= 0.15:                  # enough to animate a percentage without flooding the GUI
+                last[0] = now
+                self.media_progress.emit(url, done, total)
 
         def work():
+            tmp = dest.with_suffix(dest.suffix + ".tmp")
             try:
                 if dest.exists():
                     os.utime(dest)
                 else:
-                    tmp = dest.with_suffix(dest.suffix + ".tmp")
-                    tmp.write_bytes(self._cdn_for(site).get(url).body)
+                    with open(tmp, "wb") as f:
+                        self._cdn_for(site).get(url, sink=f, progress=progress)
                     tmp.replace(dest)
+                    self.note_written(dest.stat().st_size)
             except (ApiError, OSError) as e:
+                tmp.unlink(missing_ok=True)
                 return None, str(e)
             if is_video(att.extension):
                 return str(dest), ""                  # videos play from the cached file

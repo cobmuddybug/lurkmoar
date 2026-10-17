@@ -2,7 +2,7 @@
 import html as _html
 import time
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from PySide6.QtCore import (QAbstractListModel, QEvent, QModelIndex, QPoint, QPointF, QRect, QRectF,
                             QSize, Qt, QTimer, Signal)
@@ -28,6 +28,7 @@ class ThreadModel(QAbstractListModel):
         self.items: list = []
         self.numbers: set = set()
         self.replies_to: dict = {}
+        self.changed: set = set()
 
     def rowCount(self, parent=QModelIndex()):
         return 0 if parent.isValid() else len(self.items)
@@ -51,11 +52,33 @@ class ThreadModel(QAbstractListModel):
     def load(self, posts):
         self.beginResetModel()
         self.items = list(posts)
-        self.numbers, self.replies_to = set(), {}
+        self.numbers, self.replies_to, self.changed = set(), {}, set()
         self._track(posts)
         self.endResetModel()
 
+    def _update_existing(self, incoming):
+        """Mark posts missing from the server as deleted and swap in edited ones (mod notes, deleted files)."""
+        self.changed = set()
+        for r, it in enumerate(self.items):
+            if isinstance(it, Divider):
+                continue
+            fresh = incoming.get(it.number)
+            if fresh is None:
+                fresh = it if it.deleted else replace(it, deleted=True)
+            if fresh != it:
+                self.items[r] = fresh
+                self.changed.add(it.number)
+                self.dataChanged.emit(self.index(r), self.index(r))
+        if self.changed:                     # a changed comment may quote different posts: recount in place
+            self.replies_to.clear()          # (the delegate holds this very dict)
+            for it in self.items:
+                if not isinstance(it, Divider):
+                    for ref in it.references:
+                        self.replies_to.setdefault(ref, []).append(it.number)
+
     def merge(self, posts):
+        """Returns the number of new posts; posts edited or deleted on the server are listed in self.changed."""
+        self._update_existing({p.number: p for p in posts})
         new = [p for p in posts if p.number not in self.numbers]
         if not new:
             return 0
@@ -81,7 +104,7 @@ class ThreadModel(QAbstractListModel):
                      if not isinstance(x, Divider) and x.number == number), -1)
 
     def post_count(self):
-        return len(self.numbers)
+        return sum(1 for x in self.items if not isinstance(x, Divider) and not x.deleted)
 
 
 def spans_html(spans, th, revealed):
@@ -239,6 +262,7 @@ class ThreadDelegate(QStyledItemDelegate):
         p.setFont(self.mono)
         for text, col in ((("OP" if is_op else ""), th.accent),
                           ((f"## {post.capcode.upper()}" if post.capcode else ""), th.warning),
+                          (("DELETED" if post.deleted else ""), th.warning),
                           (f"No.{post.number}", th.foreground_muted),
                           (time.strftime("%Y-%m-%d %H:%M", time.localtime(post.timestamp)), th.foreground_muted)):
             if text:
@@ -428,6 +452,8 @@ class ThreadView(QWidget):
         self.jumps.clear()
         self.model.load([])
         self.delegate.board = board
+        self.delegate.revealed_files.clear()        # spoilers revealed in another thread stay hidden here
+        self.delegate.revealed_text.clear()
         self.delegate.invalidate()
         self.set_bookmarked(bookmarked)
         self._header()
@@ -453,9 +479,11 @@ class ThreadView(QWidget):
         top = self._top_post_and_y()
         had_backrefs = {k: len(v) for k, v in self.model.replies_to.items()}
         n = self.model.merge(thread.posts)
-        if n:
-            for k, v in self.model.replies_to.items():
-                if len(v) != had_backrefs.get(k, 0):
+        if n or self.model.changed:
+            for k in self.model.changed:
+                self.delegate.invalidate(k)
+            for k in set(had_backrefs) | set(self.model.replies_to):
+                if len(self.model.replies_to.get(k, ())) != had_backrefs.get(k, 0):
                     self.delegate.invalidate(k)
             self.list.doItemsLayout()
             if top:
@@ -465,9 +493,10 @@ class ThreadView(QWidget):
                     new_y = self.list.visualRect(self.model.index(row)).y()
                     sb = self.list.verticalScrollBar()
                     sb.setValue(sb.value() + new_y - old_y)
-            if self.following:
+            if self.following and n:
                 self.list.scrollToBottom()
-            self._new = n
+            if n:
+                self._new = n
         self._header()
         return n
 
@@ -487,7 +516,7 @@ class ThreadView(QWidget):
     def replies(self): return max(0, self.model.post_count() - 1)
 
     def images(self):
-        return sum(1 for r in range(self.model.rowCount()) if (p := self.model.post_at(r))
+        return sum(1 for r in range(self.model.rowCount()) if (p := self.model.post_at(r)) and not p.deleted
                    for a in p.attachments if not a.deleted)
 
     def _header(self):

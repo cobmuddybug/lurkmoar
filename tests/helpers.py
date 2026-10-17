@@ -62,9 +62,19 @@ class FakeApi:
         raise NotFound("nf", 404)
 
 
+def serve(body, sink=None, progress=None):
+    """What a CDN fake returns: the body, or (like api.Client) streamed into `sink` with an empty body."""
+    if sink is None:
+        return Response(200, body, None)
+    sink.write(body)
+    if progress:
+        progress(len(body), len(body))
+    return Response(200, b"", None)
+
+
 class FakeCdn:
-    def get(self, url, last_modified=None):
-        return Response(200, png_bytes(), None)
+    def get(self, url, last_modified=None, sink=None, progress=None):
+        return serve(png_bytes(), sink, progress)
 
 
 WINDOWS = []

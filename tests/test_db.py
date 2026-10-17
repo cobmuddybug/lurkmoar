@@ -182,3 +182,16 @@ def test_fresh_database_is_v2_without_backup(tmp_path):
     f = tmp_path / "new.db"
     DB(f).bookmark_add("4chan", "g", 1, "x", 1)
     assert [p.name for p in tmp_path.iterdir()] == ["new.db"]
+
+
+def test_prune_catalogs_keeps_the_newest_only():
+    db = DB(":memory:")
+    for i in range(5):
+        db.cache_put(f"catalog:b{i}", "{}", None, now=i)
+        db.cache_put(f"lainchan:catalog:s{i}", "{}", None, now=10 + i)
+    db.cache_put("thread:g:1", "{}", None, now=0)
+    db.cache_put("boards", "{}", None, now=0)
+    db.prune_catalogs(keep=3)
+    assert db.cache_get("lainchan:catalog:s4") and db.cache_get("lainchan:catalog:s2")
+    assert db.cache_get("lainchan:catalog:s1") is None and db.cache_get("catalog:b4") is None
+    assert db.cache_get("thread:g:1") and db.cache_get("boards")             # other kinds untouched
