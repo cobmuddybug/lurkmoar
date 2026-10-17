@@ -1,10 +1,12 @@
 """Semantic colour roles. Change a role here, never hunt hex codes in widgets."""
+import json
 import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
 COLORS_TOML = Path.home() / ".local/state/omarchy/current/theme/colors.toml"
+DMS_COLORS = Path.home() / ".cache/DankMaterialShell/dms-colors.json"
 HEX = re.compile(r"#[0-9a-fA-F]{6}")
 
 
@@ -46,8 +48,37 @@ def derive(bg, fg, accent, error="#f7768e") -> Theme:
 DEFAULT = derive("#0f1115", "#e6e6e6", "#7aa2f7")
 
 
-def read_theme(path=COLORS_TOML) -> "Theme | None":
-    """The theme in a colors.toml, or None if the file is missing or unreadable (callers keep what they have)."""
+def default_source() -> Path:
+    """Omarchy's colors.toml if present, else DankMaterialShell's dms-colors.json (niri + DMS), else the Omarchy path."""
+    if COLORS_TOML.exists() or not DMS_COLORS.exists():
+        return COLORS_TOML
+    return DMS_COLORS
+
+
+def _read_dms(path) -> "Theme | None":
+    try:
+        with open(path, "rb") as f:
+            d = json.load(f)
+        mode = d.get("mode") if d.get("mode") in ("dark", "light") else "dark"
+        c, red = d["colors"][mode], d.get("dank16", {}).get("color1", {}).get(mode)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+    if not isinstance(c, dict):
+        return None
+
+    def pick(key, default):
+        v = c.get(key)
+        return v.lower() if isinstance(v, str) and HEX.fullmatch(v) else default
+
+    return derive(pick("background", DEFAULT.background), pick("on_background", DEFAULT.foreground),
+                  pick("primary", DEFAULT.accent), pick("error", red if isinstance(red, str) and HEX.fullmatch(red) else "#f7768e"))
+
+
+def read_theme(path=None) -> "Theme | None":
+    """The theme in a colors.toml (Omarchy) or dms-colors.json (DMS), or None if missing or unreadable (callers keep what they have)."""
+    path = Path(path) if path else default_source()
+    if path.suffix == ".json":
+        return _read_dms(path)
     try:
         with open(path, "rb") as f:
             c = tomllib.load(f)
@@ -62,7 +93,7 @@ def read_theme(path=COLORS_TOML) -> "Theme | None":
                   pick("accent", DEFAULT.accent), pick("color1", "#f7768e"))
 
 
-def load_theme(path=COLORS_TOML) -> Theme:
+def load_theme(path=None) -> Theme:
     return read_theme(path) or DEFAULT
 
 

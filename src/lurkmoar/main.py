@@ -216,10 +216,10 @@ class MainWindow(QMainWindow):
         self._help = HelpDialog(self)
         self._help.open()
 
-    # ---- live theme: follow Omarchy when the theme changes
+    # ---- live theme: follow Omarchy or DMS when the theme changes
     def _start_theme_watch(self, theme_path):
-        from .theme import COLORS_TOML
-        self.theme_path = Path(theme_path or COLORS_TOML)
+        from .theme import default_source
+        self.theme_path = Path(theme_path or default_source())
         self._theme_timer = QTimer(self)
         self._theme_timer.setSingleShot(True)
         self._theme_timer.setInterval(300)           # one theme switch fires many file events; settle first
@@ -235,8 +235,11 @@ class MainWindow(QMainWindow):
         stale = w.directories() + w.files()
         if stale:
             w.removePaths(stale)
-        current = self.theme_path.parent.parent
-        paths = [str(p) for p in (current, self.theme_path.parent, current / "theme.name") if p.exists()]
+        if self.theme_path.suffix == ".json":        # DMS rewrites one file in place; watch it and its directory
+            paths = [str(p) for p in (self.theme_path.parent, self.theme_path) if p.exists()]
+        else:
+            current = self.theme_path.parent.parent
+            paths = [str(p) for p in (current, self.theme_path.parent, current / "theme.name") if p.exists()]
         if paths:
             w.addPaths(paths)
 

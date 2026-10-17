@@ -34,3 +34,13 @@ def test_roles_are_hex_and_mix():
 
 def test_stylesheet_mentions_accent():
     assert DEFAULT.accent in stylesheet(DEFAULT, 11)
+
+
+def test_dms_colors_json(tmp_path):
+    f = tmp_path / "dms-colors.json"
+    f.write_text('{"mode":"light","colors":{"dark":{"background":"#000000"},'
+                 '"light":{"background":"#FAF8FF","on_background":"#111111","primary":"#465e99","error":"#ba1a1a"}}}')
+    t = load_theme(f)
+    assert (t.background, t.foreground, t.accent, t.error) == ("#faf8ff", "#111111", "#465e99", "#ba1a1a")
+    f.write_text("{nope")
+    assert load_theme(f) == DEFAULT

@@ -20,10 +20,13 @@ for arg in "$@"; do
   esac
 done
 
-command -v uv >/dev/null || { echo "uv is required (https://docs.astral.sh/uv/). Install it and re-run." >&2; exit 1; }
-
-[ -d .venv ] || uv venv --system-site-packages .venv
-uv pip install -q --python .venv/bin/python -e .
+if command -v uv >/dev/null; then
+  [ -d .venv ] || uv venv --system-site-packages .venv
+  uv pip install -q --python .venv/bin/python -e .
+else                                          # no uv: plain venv + pip
+  [ -d .venv ] || python3 -m venv --system-site-packages .venv
+  .venv/bin/python -m pip install -q -e .
+fi
 
 mkdir -p ~/.local/bin ~/.local/share/applications ~/.local/share/icons/hicolor/scalable/apps
 cat > ~/.local/bin/lurkmoar <<WRAP
@@ -45,6 +48,9 @@ if [ "$bind" = 1 ]; then
   if python3 scripts/bind_hyprland.py "$bindings" ${LURKMOAR_KEYS:+"$LURKMOAR_KEYS"}; then
     hyprctl reload >/dev/null 2>&1 || true
   fi
+elif [ -d ~/.config/niri ]; then
+  echo "No keybinding was added. On niri, add to the binds block of ~/.config/niri/config.kdl:"
+  echo '  Mod+Shift+L hotkey-overlay-title="LurkMoar" { spawn "lurkmoar"; }'
 else
   echo "No keybinding was added. To bind a key on Omarchy, re-run with --bind, or add this to $bindings:"
   echo '  o.bind("SUPER + ALT + L", "LurkMoar", os.getenv("HOME") .. "/.local/bin/lurkmoar")'
