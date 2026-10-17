@@ -166,6 +166,8 @@ class MediaViewer(QFrame):
         v.addWidget(self.stack, 1)
         v.addWidget(bar)
         repo.media_ready.connect(self.on_media)
+        repo.media_progress.connect(self.on_progress)
+        self._loading = False
         self.hide()
 
     def set_theme(self, theme):
@@ -181,6 +183,7 @@ class MediaViewer(QFrame):
             items, idx = [att], 0
         self.site, self.board, self.items, self.index, self._start = site, board, items, idx, idx
         self.setGeometry(self.parentWidget().rect())
+        self.repo.thumbs.pause(True)
         self.show()
         self.raise_()
         self.canvas.setFocus()
@@ -202,7 +205,16 @@ class MediaViewer(QFrame):
                           "+ / − zoom   0 fit   1 actual size   S save   ← → previous / next")
         self.stack.setCurrentWidget(self.canvas)
         self.canvas.set_note("Loading video…" if video else "Loading image…")
+        self._loading = True
         self.repo.request_media(self.site, self.board, att)
+
+    def on_progress(self, url, done, total):
+        if not self._loading or self.att is None or url != self.att.original_url or not self.isVisible():
+            return
+        kind = "video" if is_video(self.att.extension) else "image"
+        total = total or self.att.size or 0
+        pct = f"{min(99, done * 100 // total)}%  ·  {_size(done)} of {_size(total)}" if total else _size(done)
+        self.canvas.set_note(f"Loading {kind}…  {pct}")
 
     def step(self, delta):
         if len(self.items) < 2:
@@ -214,6 +226,7 @@ class MediaViewer(QFrame):
         if self.att is None or url != self.att.original_url or not self.isVisible():
             return
         kind = "video" if is_video(self.att.extension) else "image"
+        self._loading = False
         if data is None:
             self.stack.setCurrentWidget(self.canvas)
             tail = "Press V to open it in the external player." if kind == "video" else "Press O to open the original."
@@ -247,6 +260,8 @@ class MediaViewer(QFrame):
         changed = self.att.id if self.att is not None and self.index != self._start else 0
         self._stop_video()
         self.hide()
+        self.repo.thumbs.pause(False)
+        self._loading = False
         self.att, self.items = None, []
         self.parentWidget().window().activateWindow()
         self.closed.emit(changed)

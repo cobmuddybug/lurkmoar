@@ -93,6 +93,7 @@ class Post:
     capcode: str
     spans: tuple[Span, ...]
     site: str = "4chan"
+    deleted: bool = False         # gone from the server since we loaded it; kept so the reader doesn't lose its place
 
     @property
     def attachment(self):

@@ -33,6 +33,7 @@ V1_COLUMNS = {
 }
 NAV_FIELDS = {"catalog_anchor", "thread_no", "thread_anchor"}
 THREAD_KEY = "(key LIKE 'thread:%' OR key LIKE '%:thread:%')"
+CATALOG_KEY = "(key LIKE 'catalog:%' OR key LIKE '%:catalog:%')"
 
 
 @dataclass(frozen=True)
@@ -111,6 +112,10 @@ class DB:
           AND key NOT IN (SELECT CASE WHEN site='4chan' THEN 'thread:'||board||':'||thread_id
                                       ELSE site||':thread:'||board||':'||thread_id END FROM bookmarks)
           AND key NOT IN (SELECT key FROM cache WHERE {THREAD_KEY} ORDER BY fetched_at DESC LIMIT ?)""", (keep,))
+
+    def prune_catalogs(self, keep=30):
+        self._x(f"""DELETE FROM cache WHERE {CATALOG_KEY}
+          AND key NOT IN (SELECT key FROM cache WHERE {CATALOG_KEY} ORDER BY fetched_at DESC LIMIT ?)""", (keep,))
 
     # bookmarks
     def bookmark_add(self, site, board, thread_id, subject, replies):

@@ -96,3 +96,28 @@ def test_bad_board_codes_rejected():
         with pytest.raises(ValueError):
             catalog_url(bad)
     assert thread_url("g", 123) == "https://a.4cdn.org/g/thread/123.json"
+
+
+def test_get_with_sink_streams_body_and_reports_progress(tmp_path):
+    body = b"x" * 200_000
+    cl, _ = make(lambda r: httpx.Response(200, content=body, headers={"Content-Length": str(len(body))}))
+    seen = []
+    with open(tmp_path / "f", "wb") as f:
+        r = cl.get("https://x/a.webm", sink=f, progress=lambda d, t: seen.append((d, t)))
+    assert r.status == 200 and r.body == b""
+    assert (tmp_path / "f").read_bytes() == body
+    assert seen[-1] == (len(body), len(body)) and len(seen) > 1
+
+
+def test_sink_starts_over_on_retry(tmp_path):
+    calls = []
+
+    def h(req):
+        calls.append(1)
+        return httpx.Response(503, content=b"busy") if len(calls) == 1 else httpx.Response(200, content=b"good")
+
+    cl, _ = make(h, min_interval=0.0)
+    with open(tmp_path / "f", "w+b") as f:
+        f.write(b"stale partial download")
+        cl.get("https://x/a", sink=f)
+    assert (tmp_path / "f").read_bytes() == b"good"

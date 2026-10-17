@@ -188,3 +188,41 @@ def test_large_thread_lays_out_fast(qapp):
     tv.load(big)
     tv.list.doItemsLayout()
     assert time.time() - t < 3.0
+
+
+def test_merge_marks_vanished_posts_deleted_and_keeps_their_rows():
+    m = ThreadModel()
+    m.load(posts(4))
+    assert m.merge(posts(4)[:2] + posts(1, start=4)) == 0          # post 3 removed by a mod
+    assert m.changed == {3} and m.rowCount() == 4
+    assert m.post_at(m.row_of(3)).deleted and m.post_count() == 3
+    assert m.merge(posts(4)[:2] + posts(1, start=4)) == 0 and m.changed == set()   # already marked: no churn
+
+
+def test_merge_swaps_in_edited_posts_and_recounts_backlinks():
+    m = ThreadModel()
+    m.load(posts(3))
+    quoting = Post.from_api("g", {"no": 3, "resto": 1, "time": 3,
+                                  "com": 'post 3 <a href="#p1" class="quotelink">&gt;&gt;1</a>'})
+    assert m.merge(posts(2) + [quoting]) == 0
+    assert m.changed == {3} and m.post_at(2) == quoting and m.replies_to == {1: [3]}
+
+
+def test_refresh_shows_deleted_badge_and_drops_it_from_counts(qapp):
+    win, api, repo, db = open_thread_in(qapp)
+    tv = win.thread
+    api.thread = {"posts": [p for p in THREAD["posts"] if p["no"] != 103]}
+    tv.apply(Thread.from_api("g", 100, api.thread))
+    assert tv.model.post_at(tv.model.row_of(103)).deleted
+    assert "2 replies" in tv.stats.text() and "1 images" in tv.stats.text()
+    assert tv.replies() == 2
+
+
+def test_revealed_spoilers_do_not_carry_into_another_thread(qapp):
+    win, *_ = open_thread_in(qapp)
+    tv = win.thread
+    tv.list.setCurrentIndex(tv.model.index(tv.model.row_of(103)))
+    tv.key_action("reveal")
+    tv.delegate.revealed_text[102] = {0}
+    tv.begin("4chan", "g", 200, "other", False)
+    assert not tv.delegate.revealed_files and not tv.delegate.revealed_text

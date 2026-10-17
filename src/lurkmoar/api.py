@@ -58,7 +58,9 @@ class Client:
                 now += wait
             self._next = now + self._min
 
-    def get(self, url, last_modified=None) -> Response:
+    def get(self, url, last_modified=None, sink=None, progress=None) -> Response:
+        """With `sink` (a writable binary file) the body is streamed into it and Response.body is empty;
+        `progress(done, total)` is called per chunk, total being None when the server doesn't say."""
         headers = {"If-Modified-Since": last_modified} if last_modified else {}
         err = ApiError("request failed")
         for attempt in range(self._retries + 1):
@@ -66,18 +68,36 @@ class Client:
                 self._sleep(min(8.0, self._backoff * 2 ** (attempt - 1)))
             self._wait()
             try:
-                r = self._http.get(url, headers=headers)
+                if sink is None:
+                    r = self._http.get(url, headers=headers)
+                else:
+                    r = self._stream(url, headers, sink, progress)
             except httpx.HTTPError as e:
                 err = ApiError(f"network: {type(e).__name__}")
                 continue
             if r.status_code in (200, 304):
-                return Response(r.status_code, r.content, r.headers.get("Last-Modified"))
+                return Response(r.status_code, r.content if sink is None else b"", r.headers.get("Last-Modified"))
             if r.status_code == 404:
                 raise NotFound("not found", 404)
             err = ApiError(f"http {r.status_code}", r.status_code)
             if r.status_code != 429 and r.status_code < 500:
                 raise err
         raise err
+
+    def _stream(self, url, headers, sink, progress):
+        sink.seek(0)
+        sink.truncate()                       # a retry starts the file over
+        with self._http.stream("GET", url, headers=headers) as r:
+            if r.status_code != 200:
+                return r
+            total = int(r.headers.get("Content-Length") or 0) or None
+            done = 0
+            for chunk in r.iter_bytes(65536):
+                sink.write(chunk)
+                done += len(chunk)
+                if progress:
+                    progress(done, total)
+        return r
 
     def close(self):
         self._http.close()

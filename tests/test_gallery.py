@@ -27,10 +27,9 @@ class ClipCdn:
     """Serves the generated clip for .webm URLs and a PNG for everything else."""
     def __init__(self, clip): self.clip = clip
 
-    def get(self, url, last_modified=None):
-        from lurkmoar.api import Response
-        from helpers import png_bytes
-        return Response(200, self.clip if url.endswith(".webm") else png_bytes(), None)
+    def get(self, url, last_modified=None, sink=None, progress=None):
+        from helpers import png_bytes, serve
+        return serve(self.clip if url.endswith(".webm") else png_bytes(), sink, progress)
 
 
 def open_thread_with(qapp, extra=(), clip=None):
@@ -181,3 +180,18 @@ def test_player_error_is_explained_and_points_at_v(qapp):
     win.open_media("4chan", "g", win.thread.model.post_at(win.thread.model.row_of(104)).attachment)
     v.on_player_error("decoder missing")
     assert "Couldn't play this video" in v.canvas.note and v.stack.currentWidget() is v.canvas
+
+
+def test_viewer_shows_download_progress_and_pauses_thumbnails(qapp):
+    win, _, repo, _ = open_thread_with(qapp, [WEBM_POST])
+    v = win.viewer
+    att = win.thread.model.post_at(win.thread.model.row_of(104)).attachment
+    v.show_attachment("4chan", "g", att)              # not via open_media: keep the fetch from finishing first
+    v._loading = True
+    assert repo.thumbs._paused
+    v.on_progress(att.original_url, 1024 * 1024, 4 * 1024 * 1024)
+    assert "25%" in v.canvas.note and "1.0 MB of 4.0 MB" in v.canvas.note
+    v.on_progress("https://other/url.webm", 10, 20)
+    assert "25%" in v.canvas.note                    # progress for another file is ignored
+    v.close_()
+    assert not repo.thumbs._paused

@@ -327,3 +327,42 @@ def test_build_clients_make_one_per_site_with_their_intervals():
     api_c, cdn_c = build_clients(s)
     assert set(api_c) == set(cdn_c) == set(s)
     assert api_c["lainchan"]._min == 1.0 and cdn_c["lainchan"]._min == 0.35 and cdn_c["4chan"]._min == 0.05
+
+
+def test_thumb_loader_holds_fetches_while_paused(qapp, tmp_path):
+    from helpers import png_bytes
+    from lurkmoar.repo import ThumbLoader
+    calls = []
+
+    class C:
+        def get(self, url, last_modified=None):
+            calls.append(url)
+            return Response(200, png_bytes(), None)
+
+    tl = ThumbLoader(lambda site: C(), tmp_path, lambda: None, workers=1)
+    tl.pause(True)
+    tl.image("p1", "https://x/p1.jpg")
+    _time.sleep(0.2)
+    assert calls == []
+    tl.pause(False)
+    end = _time.time() + 5
+    while not calls and _time.time() < end:
+        _time.sleep(0.01)
+    assert calls == ["https://x/p1.jpg"]
+
+
+def test_writes_during_a_session_trigger_eviction(qapp, monkeypatch):
+    import lurkmoar.repo as repo_mod
+    from lurkmoar.config import load_config, paths
+    p = paths()
+    cfg = load_config(p)
+    cfg.cache_mb = 100
+    repo = repo_mod.Repo(DB(":memory:"), FakeClient({}), FakeClient({}), p, cfg)
+    runs = []
+    monkeypatch.setattr(repo_mod, "evict", lambda dirs, cap: runs.append(cap))
+    repo.note_written(10 * 1024 * 1024)
+    assert runs == []                                    # below the 16 MB step
+    repo.note_written(10 * 1024 * 1024)
+    assert runs == [100 * 1024 * 1024]
+    repo.note_written(1)
+    assert len(runs) == 1                                # the counter starts over after each run
